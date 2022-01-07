@@ -395,5 +395,4 @@ def initialize(model: Union[nn.Module, List[nn.Module]],
         gradient_handlers=gradient_handlers,
         clip_grad_norm=clip_grad_norm
     )
-    print()
     return engine, train_dataloader, test_dataloader, lr_scheduler
