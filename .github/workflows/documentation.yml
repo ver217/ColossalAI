@@ -39,4 +39,4 @@ jobs:
           make html
       - name: Deploy documentation
         run: |
-          scp -r .build/html server:~
+          scp -r docs/.build/html server:~
