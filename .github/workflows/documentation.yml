@@ -4,9 +4,9 @@ on:
     types: [closed]
     branches:
       - '*'
-  push:
-    branches:
-      - 'main'
+    paths:
+      - 'docs/**'
+      - 'colossalai/**'
 
 jobs:
   build:
