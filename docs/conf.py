@@ -18,8 +18,8 @@ sys.path.insert(0, os.path.abspath('..'))
 
 # -- Project information -----------------------------------------------------
 
-project = 'Colossal-AI'
-copyright = f'{datetime.datetime.now().year}, HPC-AI Tech'
+project = 'Colossal-AI test'
+copyright = f'{datetime.datetime.now().year}, HPC-AI Tech test'
 author = 'HPC-AI Technology Inc.'
 
 # The full version, including alpha/beta/rc tags
