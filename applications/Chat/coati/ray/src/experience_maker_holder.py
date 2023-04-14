@@ -22,7 +22,7 @@ from .utils import is_rank_0, get_strategy_from_args, set_dist_env
 class ExperienceMakerHolder:
     '''
     Args:
-        detached_trainer_name_list: str list to get ray actor handleskkk
+        detached_trainer_name_list: str list to get ray actor handles
         strategy: 
         experience_batch_size: batch size of generated experience
         kl_coef: the coefficient of kl divergence loss
@@ -170,3 +170,29 @@ class ExperienceMakerHolder:
             self.experience_maker.actor = self.strategy.prepare(new_actor)
             self.experience_maker.critic = self.strategy.prepare(new_critic)
         self._model_visit_lock.release()
+
+
+
+from .pipeline_strategy import PPStrategy
+
+@ray.remote
+class ExperienceMakerHolderVoid:
+    '''
+    Void holder to be a member in Pipeline Group. Don't do anything.
+    Args:
+        strategy: 'pp'
+    '''
+
+    def __init__(self,
+                 strategy: str,
+                 env_info: Dict[str, str] = None
+                 ):
+        # set environment variables
+        if env_info:
+            set_dist_env(env_info=env_info)
+        self.strategy_str = strategy
+        self.strategy = get_strategy_from_args(strategy)
+        assert isinstance(self.strategy, PPStrategy)
+        
+    def workingloop(self, **kwargs):
+        return

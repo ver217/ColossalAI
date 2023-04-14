@@ -78,28 +78,31 @@ class PPStrategy(NaiveStrategy):
     ):
         self.seed = seed
         super().__init__()
-        
-        
+
+
     def setup_distributed(self) -> None:
+        self.world_size = int(os.environ['WORLD_SIZE'])
+        self.rank = int(os.environ['RANK'])
         colossalai.launch_from_torch({}, seed=self.seed)
-        ppg.set_global_info(rank = int(os.environ['RANK']),
-                            world_size=int(os.environ['WORLD_SIZE']),
+        ppg.set_global_info(rank = self.rank,
+                            world_size = self.world_size,
                             dp_degree=1,
                             tp_degree=1,
                             num_worker_threads=128,
                             device="cuda")
-        
+
     def model_init_context(self):
         return super().model_init_context()
-    
+
     def setup_model(self, model: torch.nn.Module) -> torch.nn.Module:
         if isinstance(model, Actor) or \
             isinstance(model, RewardModel) or \
             isinstance(model, Critic):
-            model.model = PipelineModel(model.model)
+            model.model = PipelineModel(model = model.model,
+                                        stage_num=self.world_size,
+                                        num_microbatches=1)
 
     def set_seed(self, seed: int) -> None:
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
-

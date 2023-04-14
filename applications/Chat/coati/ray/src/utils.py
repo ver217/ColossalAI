@@ -7,6 +7,8 @@ from coati.trainer.strategies import ColossalAIStrategy, DDPStrategy, NaiveStrat
 import torch
 import os
 
+from .pipeline_strategy import PPStrategy
+
 def is_rank_0() -> bool:
     return not dist.is_initialized() or dist.get_rank() == 0
 
@@ -35,6 +37,8 @@ def get_strategy_from_args(strategy: str):
         strategy_ = ColossalAIStrategy(stage=3, placement_policy='cuda', initial_scale=2**5)
     elif strategy == 'colossalai_zero2':
         strategy_ = ColossalAIStrategy(stage=2, placement_policy='cuda')
+    elif strategy == 'pp':
+        strategy_ = PPStrategy()
     else:
         raise ValueError(f'Unsupported strategy "{strategy}"')
     return strategy_
