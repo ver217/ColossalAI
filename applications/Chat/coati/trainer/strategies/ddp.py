@@ -110,10 +110,3 @@ class DDPStrategy(NaiveStrategy):
     def setup_sampler(self, dataset) -> DistributedSampler:
         return DistributedSampler(dataset, dist.get_world_size(), dist.get_rank())
 
-    def get_model_state_dict(self, model: nn.Module):
-        for module in model.modules():
-            if isinstance(module, LoraLinear):
-                module.merge_weights = True
-                module.eval()
-        state_dict = model.state_dict()
-        return state_dict

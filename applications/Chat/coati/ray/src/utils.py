@@ -1,32 +1,64 @@
 import torch.distributed as dist
 from typing import Any, Callable, Dict, List, Optional
-from coati.models.bloom import BLOOMActor, BLOOMCritic
-from coati.models.gpt import GPTActor, GPTCritic
-from coati.models.opt import OPTActor, OPTCritic
+from coati.models.bloom import BLOOMActor, BLOOMCritic, BLOOMRM
+from coati.models.gpt import GPTActor, GPTCritic, GPTRM
+from coati.models.opt import OPTActor, OPTCritic, OPTRM
+from coati.models.roberta import RoBERTaRM, RoBERTaActor, RoBERTaCritic
+from coati.models.llama import LlamaActor, LlamaCritic, LlamaRM
+
 from coati.trainer.strategies import ColossalAIStrategy, DDPStrategy, NaiveStrategy
 import torch
 import os
 
-from .pipeline_strategy import PPStrategy
 
 def is_rank_0() -> bool:
     return not dist.is_initialized() or dist.get_rank() == 0
 
 
-def get_cuda_actor_critic_from_args(model: str, pretrained: str = None, lora_rank=0):
+def get_actor_from_args(model: str, pretrained: str = None, lora_rank = 0):
     if model == 'gpt2':
-        actor = GPTActor(pretrained=pretrained, lora_rank=lora_rank).to(torch.cuda.current_device())
-        critic = GPTCritic(pretrained=pretrained, lora_rank=lora_rank).to(torch.cuda.current_device())
+        actor = GPTActor(pretrained=pretrained, lora_rank=lora_rank)
     elif model == 'bloom':
-        actor = BLOOMActor(pretrained=pretrained, lora_rank=lora_rank).to(torch.cuda.current_device())
-        critic = BLOOMCritic(pretrained=pretrained, lora_rank=lora_rank).to(torch.cuda.current_device())
+        actor = BLOOMActor(pretrained=pretrained, lora_rank=lora_rank)
     elif model == 'opt':
-        actor = OPTActor(pretrained=pretrained, lora_rank=lora_rank).to(torch.cuda.current_device())
-        critic = OPTCritic(pretrained=pretrained, lora_rank=lora_rank).to(torch.cuda.current_device())
+        actor = OPTActor(pretrained=pretrained, lora_rank=lora_rank)
+    elif model == 'llama':
+        actor = LlamaActor(pretrained=pretrained, lora_rank=lora_rank)
+    elif model == 'roberta':
+        actor = RoBERTaActor(pretrained=pretrained, lora_rank=lora_rank)
     else:
-        raise ValueError(f'Unsupported model "{model}"')
-    return actor, critic
+        raise ValueError(f'Unsupported actor model "{model}"')
+    return actor
 
+def get_critic_from_args(model: str, pretrained: str = None, lora_rank = 0):
+    if model == 'gpt2':
+        critic = GPTCritic(pretrained=pretrained, lora_rank=lora_rank, use_action_mask=True)
+    elif model == 'bloom':
+        critic = BLOOMCritic(pretrained=pretrained, lora_rank=lora_rank, use_action_mask=True)
+    elif model == 'opt':
+        critic = OPTCritic(pretrained=pretrained, lora_rank=lora_rank, use_action_mask=True)
+    elif model == 'llama':
+        critic = LlamaCritic(pretrained=pretrained, lora_rank=lora_rank, use_action_mask=True)
+    elif model == 'roberta':
+        critic = RoBERTaCritic(pretrained=pretrained, lora_rank=lora_rank, use_action_mask=True)
+    else:
+        raise ValueError(f'Unsupported reward model "{model}"')
+    return critic
+
+def get_reward_model_from_args(model: str, pretrained: str = None):
+    if model == 'gpt2':
+        reward_model = GPTRM(pretrained=pretrained)
+    elif model == 'bloom':
+        reward_model = BLOOMRM(pretrained=pretrained)
+    elif model == 'opt':
+        reward_model = OPTRM(pretrained=pretrained)
+    elif model == 'llama':
+        reward_model = LlamaRM(pretrained=pretrained)
+    elif model == 'roberta':
+        reward_model = RoBERTaRM(pretrained=pretrained)
+    else:
+        raise ValueError(f'Unsupported reward model "{model}"')
+    return reward_model
 
 def get_strategy_from_args(strategy: str):
     if strategy == 'naive':
@@ -37,8 +69,6 @@ def get_strategy_from_args(strategy: str):
         strategy_ = ColossalAIStrategy(stage=3, placement_policy='cuda', initial_scale=2**5)
     elif strategy == 'colossalai_zero2':
         strategy_ = ColossalAIStrategy(stage=2, placement_policy='cuda')
-    elif strategy == 'pp':
-        strategy_ = PPStrategy()
     else:
         raise ValueError(f'Unsupported strategy "{strategy}"')
     return strategy_

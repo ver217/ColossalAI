@@ -14,7 +14,7 @@ from colossalai.nn.optimizer import HybridAdam
 import ray
 
 
-from .utils import is_rank_0, get_cuda_actor_critic_from_args, get_strategy_from_args, set_dist_env
+from .utils import is_rank_0, get_actor_from_args, get_critic_from_args, get_strategy_from_args, set_dist_env
 from .detached_trainer_base import DetachedTrainer
 
 
@@ -44,9 +44,12 @@ class DetachedPPOTrainer(DetachedTrainer):
                  experience_maker_holder_name_list: List[str],
                  strategy: str,
                  model: str,
-                 env_info: Dict[str, str] = None,
                  pretrained: str = None,
                  lora_rank: int = 0,
+                 rm_model: str = None, # if not None, use below rm settings for critic
+                 rm_pretrained: str = None,
+                 rm_lora_rank: int = 0,
+                 env_info: Dict[str, str] = None,
                  train_batch_size: int = 8,
                  buffer_limit: int = 0,
                  buffer_cpu_offload: bool = True,
@@ -63,24 +66,31 @@ class DetachedPPOTrainer(DetachedTrainer):
         # configure strategy
         self.strategy = get_strategy_from_args(strategy)
         # configure models, loss and optimizers
+        if rm_model is None:
+            rm_model = model
+            rm_pretrained = pretrained
+            rm_lora_rank = lora_rank
+
         with self.strategy.model_init_context():
-            self.actor, self.critic = get_cuda_actor_critic_from_args(model, pretrained, lora_rank)
+            self.actor = get_actor_from_args(model, pretrained, lora_rank)
+            self.critic = get_critic_from_args(rm_model, rm_pretrained, rm_lora_rank)
 
         if strategy != 'colossalai_gemini':
             self.actor.to(torch.float16).to(torch.cuda.current_device())
             self.critic.to(torch.float16).to(torch.cuda.current_device())
 
         if strategy.startswith('colossalai'):
-            self.actor_optim = HybridAdam(self.actor.parameters(), lr=5e-6)
-            self.critic_optim = HybridAdam(self.critic.parameters(), lr=5e-6)
+            self.actor_optim = HybridAdam(self.actor.parameters(), lr=1e-7)
+            self.critic_optim = HybridAdam(self.critic.parameters(), lr=1e-7)
         else:
-            self.actor_optim = Adam(self.actor.parameters(), lr=5e-6)
-            self.critic_optim = Adam(self.critic.parameters(), lr=5e-6)
+            self.actor_optim = Adam(self.actor.parameters(), lr=1e-7)
+            self.critic_optim = Adam(self.critic.parameters(), lr=1e-7)
 
         (self.actor, self.actor_optim), (self.critic, self.critic_optim) = \
             self.strategy.prepare((self.actor, self.actor_optim), (self.critic, self.critic_optim))
+        
+        # configure trainer
         generate_kwargs = _set_default_generate_kwargs(self.strategy, generate_kwargs, self.actor)
-
         self.actor_loss_fn = PolicyLoss(eps_clip)
         self.critic_loss_fn = ValueLoss(value_clip)
 
@@ -176,7 +186,17 @@ class DetachedPPOTrainer(DetachedTrainer):
             return self.critic.module
         elif isinstance(self.strategy, NaiveStrategy):
             return self.critic
-
+        
+    def _get_actor_state_dict(self, save_config=None):
+        # full state_dict
+        state_dict = self.strategy.get_model_state_dict(self.actor)
+        return state_dict
+    
+    def _get_critic_state_dict(self, save_config=None):
+        # full state_dict
+        state_dict = self.strategy.get_model_state_dict(self.critic)
+        return state_dict
+    
 
 def _set_default_generate_kwargs(strategy: Strategy, generate_kwargs: dict, actor: Actor) -> None:
     origin_model = strategy._unwrap_actor(actor)
