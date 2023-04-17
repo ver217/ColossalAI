@@ -210,3 +210,12 @@ class ColossalAIStrategy(DDPStrategy):
             raise RuntimeError(
                 f'Optimizer states are sharded when using ColossalAIStrategy. Only rank0 is not supported.')
         torch.save(optimizer.state_dict(), path)
+
+    def get_model_state_dict(self, model: nn.Module):
+        unwrapped_model = self._unwrap_model(model)
+        for module in unwrapped_model.modules():
+            if isinstance(module, LoraLinear):
+                module.merge_weights = True
+                module.eval()
+        state_dict = model.state_dict()
+        return state_dict
