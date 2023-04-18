@@ -13,7 +13,7 @@ from copy import deepcopy
 from threading import Lock
 import time
 import os
-
+import tracemalloc
 
 from .utils import is_rank_0, get_strategy_from_args, set_dist_env, get_actor_from_args, get_critic_from_args, \
     get_reward_model_from_args
@@ -52,7 +52,12 @@ class ExperienceMakerHolder:
         actor, critic, reward_model, initial_model = None, None, None, None
         self.experience_maker = NaiveExperienceMaker(actor, critic, reward_model, initial_model, self.kl_coef)
         self._model_visit_lock = Lock()
-        self.fully_initialized = False
+        
+        
+        self._initial_model_initialized = False
+        self._reward_model_initialized = False
+        self._actor_initialized = False
+        self._critic_initialized = False
         
         if 'debug' in self.generate_kwargs and self.generate_kwargs['debug'] == True:
             self.debug = True
@@ -63,8 +68,20 @@ class ExperienceMakerHolder:
         if self.debug: print('[maker] Waiting for INIT')
 
     def _get_ready(self):
-        while not self.fully_initialized:
+        while not self._fully_initialized():
             time.sleep(1.0)
+
+    def _fully_initialized(self):
+        if not self._initial_model_initialized:
+            return False
+        if not self._reward_model_initialized:
+            return False
+        if not self._actor_initialized:
+            return False
+        if not self._critic_initialized:
+            return False
+        return True
+    
 
     def update_target_trainer_list(self, detached_trainer_name_list):
         self.target_trainer_list = []
@@ -126,35 +143,6 @@ class ExperienceMakerHolder:
             self._model_visit_lock.release()
             self._send_experience(experience=experience)
 
-
-    # @ray.method(concurrency_group="model_io")
-    # def initialize_experience_maker(self, init_actor: Actor, init_critic: Critic):
-    #     '''
-    #     called by trainer. Only once.
-    #     '''
-    #     # TODO: reduce malloc
-    #     if self.fully_initialized:
-    #         return
-    #     if self.debug: print('[maker] INIT')
-    #     with torch.no_grad():
-    #         with self.strategy.model_init_context():
-    #             actor = init_actor
-    #             critic = init_critic
-    #             initial_model = deepcopy(actor)
-    #             reward_model = RewardModel(deepcopy(critic.model),
-    #                                        deepcopy(critic.value_head)).to(torch.cuda.current_device())
-    #         if self.strategy_str != 'colossalai_gemini':
-    #             actor.to(torch.float16).to(torch.cuda.current_device())
-    #             critic.to(torch.float16).to(torch.cuda.current_device())
-    #             initial_model.to(torch.float16).to(torch.cuda.current_device())
-    #             reward_model.to(torch.float16).to(torch.cuda.current_device())
-
-    #         self.experience_maker.actor = self.strategy.prepare(actor)
-    #         self.experience_maker.critic = self.strategy.prepare(critic)
-    #         self.experience_maker.initial_model = self.strategy.prepare(initial_model)
-    #         self.experience_maker.reward_model = self.strategy.prepare(reward_model)
-    #     self.fully_initialized = True
-
     @ray.method(concurrency_group="model_io")
     def initialize_experience_maker(self, 
                                     actor_model: str = None, 
@@ -162,73 +150,114 @@ class ExperienceMakerHolder:
                                     actor_state_dict: Dict[str, Any] = None,
                                     critic_model: str = None,
                                     critic_pretrained: str = None,
-                                    critic_state_dict: Dict[str, Any] = None):
+                                    critic_state_dict: Dict[str, Any] = None,
+                                    chunk_start: bool = True,
+                                    chunk_end: bool = True):
         '''
             called by trainer
-            TODO: load_state_dict integrate with model-sharding strategy  
+            TODO: load_state_dict integrate with model-sharding strategy 
         '''
-        if self.fully_initialized:
+        if self._fully_initialized():
             return
-        if self.debug: print('[maker] INIT')
-        with torch.no_grad():
-            if self.experience_maker.actor is None:
+
+        if chunk_start:
+            if self.debug: print('[maker] INIT')
+            with torch.no_grad():
                 # (csric) any better way to get model structure?
-                actor = get_actor_from_args(actor_model, actor_pretrained)
-                actor.model.load_state_dict(actor_state_dict) #, strict=False)
-                
-                
-            if self.experience_maker.critic is None:
-                critic = get_critic_from_args(critic_model, critic_pretrained)
-                critic.load_state_dict(critic_state_dict) #, strict=False)
-                
-                
-            if self.experience_maker.initial_model is None:
-                initial_model = get_actor_from_args(actor_model, actor_pretrained)
-                initial_model.load_state_dict(actor_state_dict)
+                with self.strategy.model_init_context():
+                    if not self._actor_initialized and actor_model is not None:
+                        self.experience_maker.actor = get_actor_from_args(actor_model, actor_pretrained)
+                    if not self._critic_initialized and critic_model is not None:
+                        self.experience_maker.critic = get_critic_from_args(critic_model, critic_pretrained)
+                    if not self._initial_model_initialized and actor_model is not None:
+                        self.experience_maker.initial_model = get_actor_from_args(actor_model, actor_pretrained)
+                    if not self._reward_model_initialized and critic_model is not None:
+                        self.experience_maker.reward_model = get_reward_model_from_args(critic_model, critic_pretrained)
 
+        with torch.no_grad():
+            if not self._actor_initialized:
+                self.experience_maker.actor.model.load_state_dict(actor_state_dict, strict=False)
+            if not self._critic_initialized:
+                self.experience_maker.critic.load_state_dict(critic_state_dict, strict=False)
+            if not self._initial_model_initialized:
+                self.experience_maker.initial_model.model.load_state_dict(actor_state_dict, strict=False)
+            if not self._reward_model_initialized:
+                self.experience_maker.reward_model.load_state_dict(critic_state_dict, strict=False)
 
-            if self.experience_maker.reward_model is None:
-                reward_model = get_reward_model_from_args(critic_model, critic_pretrained)
-                reward_model.load_state_dict(critic_state_dict)
-
-        self.fully_initialized = True
+        if chunk_end:
+            if actor_model is not None:
+                if not self._actor_initialized:
+                    self.experience_maker.actor = self.strategy.prepare(self.experience_maker.actor)
+                if not self._initial_model_initialized:
+                    self.experience_maker.initial_model = self.strategy.prepare(self.experience_maker.initial_model)
+                self._actor_initialized = True
+                self._initial_model_initialized = True
+            if critic_model is not None:
+                if not self._critic_initialized:
+                    self.experience_maker.critic = self.strategy.prepare(self.experience_maker.critic)
+                if not self._reward_model_initialized:
+                    self.experience_maker.reward_model = self.strategy.prepare(self.experience_maker.reward_model)
+                self._critic_initialized = True
+                self._reward_model_initialized = True
     
-    def initialize_experience_maker_myself(self, 
+    def initialize_experience_maker_local(self, 
                                            initial_model_func = None,
                                            reward_model_func = None,
                                            actor_func = None,
-                                           critic_func = None,
-                                           mark_fully_initialized = False):
+                                           critic_func = None):
         '''
             Use function call to construct the model here, because some strategy requieres env_info
             The model initialized here will be IGNORED in initialize_experience_maker.
+            initial_model and reward_model can have their own strategy rather than self.strategy. For example, Quantization.
         '''
-        if initial_model_func is not None:
-            self.experience_maker.initial_model = initial_model_func()
-        if reward_model_func is not None:
-            self.experience_maker.reward_model = reward_model_func()
+
         if actor_func is not None:
             self.experience_maker.actor = actor_func()
+            self._actor_initialized = True
         if critic_func is not None:
             self.experience_maker.critic = critic_func()
-
-        if mark_fully_initialized:
-            self.fully_initialized = True
+            self._critic_initialized = True
+        if initial_model_func is not None:
+            self.experience_maker.initial_model = initial_model_func()
+            self._initial_model_initialized = True
+        if reward_model_func is not None:
+            self.experience_maker.reward_model = reward_model_func()
+            self._reward_model_initialized = True
+    
     
     @ray.method(concurrency_group="model_io")
     def update_experience_maker(self, 
-                                new_actor_state_dict: Dict[str, Any], 
-                                new_critic_state_dict: Dict[str, Any]):
+                                new_actor_state_dict: Dict[str, Any] = None, 
+                                new_critic_state_dict: Dict[str, Any] = None,
+                                chunk_start: bool = True,
+                                chunk_end: bool = True):
         '''
             called by trainer
             TODO: load_state_dict integrate with model-sharding strategy
         '''
+        _watch_memory = True
         # TODO: reduce malloc
-        self._model_visit_lock.acquire()
-        with torch.no_grad():
+        if chunk_start:
             if self.debug: print("[maker] UPDATE ")
-            self.experience_maker.actor.load_state_dict(new_actor_state_dict)
-            self.experience_maker.actor = self.strategy.prepare(self.experience_maker.actor)
-            self.experience_maker.critic.load_state_dict(new_critic_state_dict)
-            self.experience_maker.critic = self.strategy.prepare(self.experience_maker.critic)
-        self._model_visit_lock.release()
+            if _watch_memory:
+                tracemalloc.start()
+
+            self._model_visit_lock.acquire()
+
+        with torch.no_grad():
+            if new_actor_state_dict is not None:
+                self.experience_maker.actor.model.load_state_dict(new_actor_state_dict, strict=False)
+            if new_critic_state_dict is not None:
+                self.experience_maker.critic.load_state_dict(new_critic_state_dict, strict=False)
+
+        if chunk_end:
+            if new_actor_state_dict is not None:
+                self.experience_maker.actor = self.strategy.prepare(self.experience_maker.actor)
+            if new_critic_state_dict is not None:
+                self.experience_maker.critic = self.strategy.prepare(self.experience_maker.critic)
+
+            self._model_visit_lock.release()
+            if _watch_memory:
+                current, peak = tracemalloc.get_traced_memory()
+                print(f"Current memory usage is {current / 10**6}MB; Peak was {peak / 10**6}MB")
+                tracemalloc.stop()

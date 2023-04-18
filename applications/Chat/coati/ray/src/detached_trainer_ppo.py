@@ -14,11 +14,13 @@ from colossalai.nn.optimizer import HybridAdam
 import ray
 
 
-from .utils import is_rank_0, get_actor_from_args, get_critic_from_args, get_strategy_from_args, set_dist_env
+from .utils import is_rank_0, get_actor_from_args, get_critic_from_args, get_strategy_from_args, set_dist_env, \
+    state_dict_to
+
 from .detached_trainer_base import DetachedTrainer
 
 
-@ray.remote(concurrency_groups={"buffer_length": 1, "buffer_append":1, "buffer_sample":1,"model_io": 1, "compute": 1})
+@ray.remote(concurrency_groups={"buffer_length": 1, "buffer_append": 1, "buffer_sample": 1, "model_io": 1, "compute": 1})
 class DetachedPPOTrainer(DetachedTrainer):
     '''
         Detached Trainer for PPO algorithm
@@ -46,7 +48,7 @@ class DetachedPPOTrainer(DetachedTrainer):
                  model: str,
                  pretrained: str = None,
                  lora_rank: int = 0,
-                 rm_model: str = None, # if not None, use below rm settings for critic
+                 rm_model: str = None,  # if not None, use below rm settings for critic
                  rm_pretrained: str = None,
                  rm_lora_rank: int = 0,
                  env_info: Dict[str, str] = None,
@@ -88,7 +90,7 @@ class DetachedPPOTrainer(DetachedTrainer):
 
         (self.actor, self.actor_optim), (self.critic, self.critic_optim) = \
             self.strategy.prepare((self.actor, self.actor_optim), (self.critic, self.critic_optim))
-        
+
         # configure trainer
         generate_kwargs = _set_default_generate_kwargs(self.strategy, generate_kwargs, self.actor)
         self.actor_loss_fn = PolicyLoss(eps_clip)
@@ -104,25 +106,118 @@ class DetachedPPOTrainer(DetachedTrainer):
                          callbacks=callbacks,
                          **generate_kwargs)
 
+        # for remote maker initialization
+        self._model_str = model
+        self._rm_model_str = rm_model
+        self._pretrained = pretrained
+        self._rm_pretrained = rm_pretrained
+
     @ray.method(concurrency_group="model_io")
     def _update_remote_makers(self):
         # TODO: balance duties
         if is_rank_0():
             self.update_target_holder_list(self.target_holder_name_list)
             for target_holder in self.target_holder_list:
-                # TODO: reduce malloc
                 with torch.no_grad():
                     ray.get(target_holder.update_experience_maker.remote(self._get_unwrapped_actor(), self._get_unwrapped_critic()))
                     
+                    
+            with torch.no_grad():
+                # actor
+                chunk_start = True
+                chunk_end = False
+                g = self._get_actor_state_dict_shard()
+                state_dict_shard = next(g)
+                while True:
+                    try:
+                        state_dict_shard_next = next(g)
+                    except StopIteration:
+                        chunk_end = True
+
+                    for target_holder in self.target_holder_list:
+                        target_holder.update_experience_maker.remote(
+                            new_actor_state_dict = state_dict_shard,
+                            chunk_start=chunk_start,
+                            chunk_end=chunk_end)
+                    chunk_start = False
+                    if chunk_end:
+                        break
+                    state_dict_shard = state_dict_shard_next
+                    
+                # critic
+                chunk_start = True
+                chunk_end = False
+                g = self._get_critic_state_dict_shard()
+                state_dict_shard = next(g)
+                while True:
+                    try:
+                        state_dict_shard_next = next(g)
+                    except StopIteration:
+                        chunk_end = True
+
+                    for target_holder in self.target_holder_list:
+                        target_holder.update_experience_maker.remote(
+                            new_critic_state_dict = state_dict_shard,
+                            chunk_start=chunk_start,
+                            chunk_end=chunk_end)
+                    chunk_start = False
+                    if chunk_end:
+                        break
+                    state_dict_shard = state_dict_shard_next
+
     @ray.method(concurrency_group="model_io")
     def initialize_remote_makers(self):
         # TODO: balance duties
         if is_rank_0():
             self.update_target_holder_list(self.target_holder_name_list)
-            for target_holder in self.target_holder_list:
-                # TODO: reduce malloc
-                with torch.no_grad():
-                    ray.get(target_holder.initialize_experience_maker.remote(self._get_unwrapped_actor(), self._get_unwrapped_critic()))
+
+            with torch.no_grad():
+                # actor / initial_model
+                chunk_start = True
+                chunk_end = False
+                g = self._get_actor_state_dict_shard()
+
+                state_dict_shard = next(g)
+                while True:
+                    try:
+                        state_dict_shard_next = next(g)
+                    except StopIteration:
+                        chunk_end = True
+
+                    for target_holder in self.target_holder_list:
+                        target_holder.initialize_experience_maker.remote(
+                            actor_model=self._model_str,
+                            actor_pretrained=self._pretrained,
+                            actor_state_dict=state_dict_shard,
+                            chunk_start=chunk_start,
+                            chunk_end=chunk_end)
+                    chunk_start = False
+                    if chunk_end:
+                        break
+                    state_dict_shard = state_dict_shard_next
+
+                # critic / reward_model
+                chunk_start = True
+                chunk_end = False
+                g = self._get_critic_state_dict_shard()
+                state_dict_shard = next(g)
+                while True:
+                    try:
+                        state_dict_shard_next = next(g)
+                    except StopIteration:
+                        chunk_end = True
+
+                    for target_holder in self.target_holder_list:
+                        target_holder.initialize_experience_maker.remote(
+                            critic_model=self._rm_model_str,
+                            critic_pretrained=self._rm_pretrained,
+                            critic_state_dict=state_dict_shard,
+                            chunk_start=chunk_start,
+                            chunk_end=chunk_end)
+                    chunk_start = False
+                    if chunk_end:
+                        break
+                    state_dict_shard = state_dict_shard_next
 
     @ray.method(concurrency_group="compute")
     def training_step(self, experience: Experience) -> Dict[str, float]:
@@ -186,15 +281,15 @@ class DetachedPPOTrainer(DetachedTrainer):
             return self.critic.module
         elif isinstance(self.strategy, NaiveStrategy):
             return self.critic
-        
-    def _get_actor_state_dict(self, partition_config=None):
-        state_dict = self.strategy.get_model_state_dict(self.actor)
-        return state_dict
-    
-    def _get_critic_state_dict(self, partition_config=None):
-        state_dict = self.strategy.get_model_state_dict(self.critic)
-        return state_dict
-    
+
+    def _get_actor_state_dict_shard(self, **config):
+        for state_dict in self.strategy.get_model_state_dict_shard(self.actor, **config):
+            yield state_dict_to(state_dict)
+
+    def _get_critic_state_dict_shard(self, **config):
+        for state_dict in self.strategy.get_model_state_dict_shard(self.critic, **config):
+            yield state_dict_to(state_dict)
+
 
 def _set_default_generate_kwargs(strategy: Strategy, generate_kwargs: dict, actor: Actor) -> None:
     origin_model = strategy._unwrap_actor(actor)

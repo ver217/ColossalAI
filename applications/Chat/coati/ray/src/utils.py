@@ -80,3 +80,13 @@ def set_dist_env(env_info: Dict[str, str]):
     os.environ["WORLD_SIZE"] = env_info['world_size']
     os.environ['MASTER_PORT'] = env_info['master_port']
     os.environ['MASTER_ADDR'] = env_info['master_addr']
+
+
+def state_dict_to(state_dict: Dict[str, Any], dtype: torch.dtype = torch.float16, device: torch.device = torch.device('cpu')):
+    '''
+        keep state_dict intact
+    '''
+    new_state_dict = {}
+    for k, v in state_dict.items():
+        new_state_dict[k] = v.to(dtype = dtype, device = device)
+    return new_state_dict
