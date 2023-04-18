@@ -187,13 +187,11 @@ class DetachedPPOTrainer(DetachedTrainer):
         elif isinstance(self.strategy, NaiveStrategy):
             return self.critic
         
-    def _get_actor_state_dict(self, save_config=None):
-        # full state_dict
+    def _get_actor_state_dict(self, partition_config=None):
         state_dict = self.strategy.get_model_state_dict(self.actor)
         return state_dict
     
-    def _get_critic_state_dict(self, save_config=None):
-        # full state_dict
+    def _get_critic_state_dict(self, partition_config=None):
         state_dict = self.strategy.get_model_state_dict(self.critic)
         return state_dict
     
@@ -209,4 +207,3 @@ def _set_default_generate_kwargs(strategy: Strategy, generate_kwargs: dict, acto
         new_kwargs['update_model_kwargs_fn'] = update_model_kwargs_fn
 
     return new_kwargs
-   
