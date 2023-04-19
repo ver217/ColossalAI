@@ -74,6 +74,33 @@ def get_strategy_from_args(strategy: str):
     return strategy_
 
 
+from transformers import AutoTokenizer, BloomTokenizerFast, GPT2Tokenizer, LlamaTokenizer, RobertaTokenizer
+from coati.utils import prepare_llama_tokenizer_and_embedding
+
+def get_tokenizer_from_args(model: str, **kwargs):
+    if model == 'gpt2':
+        tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+    elif model == 'bloom':
+        tokenizer = BloomTokenizerFast.from_pretrained('bigscience/bloom-560m')
+    elif model == 'opt':
+        tokenizer = AutoTokenizer.from_pretrained("facebook/opt-350m")
+    elif model == 'llama':
+        pretrain_path = kwargs["pretrain"]
+        tokenizer = LlamaTokenizer.from_pretrained(pretrain_path)
+        tokenizer.eos_token = '<\s>'
+    elif model == 'roberta':
+        tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
+    else:
+        raise ValueError(f'Unsupported model "{model}"')
+
+    if model == 'llama':
+        actor = kwargs["actor"]
+        tokenizer = prepare_llama_tokenizer_and_embedding(tokenizer, actor)
+    else:
+        tokenizer.pad_token = tokenizer.eos_token
+        
+    return tokenizer
+
 def set_dist_env(env_info: Dict[str, str]):
     os.environ["RANK"] = env_info['rank']
     os.environ["LOCAL_RANK"] = env_info['local_rank']

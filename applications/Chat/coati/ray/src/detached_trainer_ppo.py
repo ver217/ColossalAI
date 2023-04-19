@@ -78,8 +78,9 @@ class DetachedPPOTrainer(DetachedTrainer):
             self.critic = get_critic_from_args(rm_model, rm_pretrained, rm_lora_rank)
 
         if strategy != 'colossalai_gemini':
-            self.actor.to(torch.float16).to(torch.cuda.current_device())
-            self.critic.to(torch.float16).to(torch.cuda.current_device())
+            self.actor.to(torch.cuda.current_device()) #.to(torch.float16)
+            self.critic.to(torch.cuda.current_device()) #.to(torch.float16)
+
 
         if strategy.startswith('colossalai'):
             self.actor_optim = HybridAdam(self.actor.parameters(), lr=1e-7)
@@ -117,11 +118,7 @@ class DetachedPPOTrainer(DetachedTrainer):
         # TODO: balance duties
         if is_rank_0():
             self.update_target_holder_list(self.target_holder_name_list)
-            for target_holder in self.target_holder_list:
-                with torch.no_grad():
-                    ray.get(target_holder.update_experience_maker.remote(self._get_unwrapped_actor(), self._get_unwrapped_critic()))
-                    
-                    
+
             with torch.no_grad():
                 # actor
                 chunk_start = True
@@ -143,7 +140,7 @@ class DetachedPPOTrainer(DetachedTrainer):
                     if chunk_end:
                         break
                     state_dict_shard = state_dict_shard_next
-                    
+
                 # critic
                 chunk_start = True
                 chunk_end = False

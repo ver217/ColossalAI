@@ -100,7 +100,6 @@ class ExperienceMakerHolder:
 
     @ray.method(concurrency_group="experience_io")
     def _send_experience(self, experience):
-        if self.debug: print(f"[maker] sending exp to {chosen_trainer}")
         if not self.target_auto_balance:
             # choose the trainer in polling mannar
             if not hasattr(self, "_target_idx"):
@@ -127,6 +126,7 @@ class ExperienceMakerHolder:
                                 chosen_trainer = target_trainer
                     except GetTimeoutError:
                         pass
+            if self.debug: print(f"[maker] sending exp to {chosen_trainer}")
             chosen_trainer.buffer_append.remote(experience)
 
     def workingloop(self, dataset, tokenizer: Optional[Callable[[Any], dict]] = None, times=5000 * 50000):
@@ -175,28 +175,28 @@ class ExperienceMakerHolder:
                         self.experience_maker.reward_model = get_reward_model_from_args(critic_model, critic_pretrained)
 
         with torch.no_grad():
-            if not self._actor_initialized:
+            if not self._actor_initialized and actor_model is not None:
                 self.experience_maker.actor.model.load_state_dict(actor_state_dict, strict=False)
-            if not self._critic_initialized:
+            if not self._critic_initialized and critic_model is not None:
                 self.experience_maker.critic.load_state_dict(critic_state_dict, strict=False)
-            if not self._initial_model_initialized:
+            if not self._initial_model_initialized and actor_model is not None:
                 self.experience_maker.initial_model.model.load_state_dict(actor_state_dict, strict=False)
-            if not self._reward_model_initialized:
+            if not self._reward_model_initialized and critic_model is not None:
                 self.experience_maker.reward_model.load_state_dict(critic_state_dict, strict=False)
 
         if chunk_end:
             if actor_model is not None:
                 if not self._actor_initialized:
-                    self.experience_maker.actor = self.strategy.prepare(self.experience_maker.actor)
+                    self.experience_maker.actor = self.strategy.prepare(self.experience_maker.actor.to(torch.cuda.current_device()))
                 if not self._initial_model_initialized:
-                    self.experience_maker.initial_model = self.strategy.prepare(self.experience_maker.initial_model)
+                    self.experience_maker.initial_model = self.strategy.prepare(self.experience_maker.initial_model.to(torch.cuda.current_device()))
                 self._actor_initialized = True
                 self._initial_model_initialized = True
             if critic_model is not None:
                 if not self._critic_initialized:
-                    self.experience_maker.critic = self.strategy.prepare(self.experience_maker.critic)
+                    self.experience_maker.critic = self.strategy.prepare(self.experience_maker.critic.to(torch.cuda.current_device()))
                 if not self._reward_model_initialized:
-                    self.experience_maker.reward_model = self.strategy.prepare(self.experience_maker.reward_model)
+                    self.experience_maker.reward_model = self.strategy.prepare(self.experience_maker.reward_model.to(torch.cuda.current_device()))
                 self._critic_initialized = True
                 self._reward_model_initialized = True
     
