@@ -48,9 +48,9 @@ class DetachedPPOTrainer(DetachedTrainer):
                  model: str,
                  pretrained: str = None,
                  lora_rank: int = 0,
-                 rm_model: str = None,  # if not None, use below rm settings for critic
-                 rm_pretrained: str = None,
-                 rm_lora_rank: int = 0,
+                 cr_model: str = None,  # if not None, use below cr settings for critic
+                 cr_pretrained: str = None,
+                 cr_lora_rank: int = 0,
                  env_info: Dict[str, str] = None,
                  train_batch_size: int = 8,
                  buffer_limit: int = 0,
@@ -68,14 +68,14 @@ class DetachedPPOTrainer(DetachedTrainer):
         # configure strategy
         self.strategy = get_strategy_from_args(strategy)
         # configure models, loss and optimizers
-        if rm_model is None:
-            rm_model = model
-            rm_pretrained = pretrained
-            rm_lora_rank = lora_rank
+        if cr_model is None:
+            cr_model = model
+            cr_pretrained = pretrained
+            cr_lora_rank = lora_rank
 
         with self.strategy.model_init_context():
             self.actor = get_actor_from_args(model, pretrained, lora_rank)
-            self.critic = get_critic_from_args(rm_model, rm_pretrained, rm_lora_rank)
+            self.critic = get_critic_from_args(cr_model, cr_pretrained, cr_lora_rank)
 
         if strategy != 'colossalai_gemini':
             self.actor.to(torch.cuda.current_device()) #.to(torch.float16)
@@ -109,9 +109,9 @@ class DetachedPPOTrainer(DetachedTrainer):
 
         # for remote maker initialization
         self._model_str = model
-        self._rm_model_str = rm_model
+        self._cr_model_str = cr_model
         self._pretrained = pretrained
-        self._rm_pretrained = rm_pretrained
+        self._cr_pretrained = cr_pretrained
 
     @ray.method(concurrency_group="model_io")
     def _update_remote_makers(self):
@@ -120,47 +120,28 @@ class DetachedPPOTrainer(DetachedTrainer):
             self.update_target_holder_list(self.target_holder_name_list)
 
             with torch.no_grad():
-                # actor
-                chunk_start = True
-                chunk_end = False
-                g = self._get_actor_state_dict_shard()
-                state_dict_shard = next(g)
-                while True:
-                    try:
-                        state_dict_shard_next = next(g)
-                    except StopIteration:
-                        chunk_end = True
-
+            # actor:
+                # mark start
+                for target_holder in self.target_holder_list:
+                    target_holder.update_experience_maker.remote(chunk_start=True)
+                # sending loop
+                for state_dict_shard in self._get_actor_state_dict_shard():
                     for target_holder in self.target_holder_list:
-                        target_holder.update_experience_maker.remote(
-                            new_actor_state_dict = state_dict_shard,
-                            chunk_start=chunk_start,
-                            chunk_end=chunk_end)
-                    chunk_start = False
-                    if chunk_end:
-                        break
-                    state_dict_shard = state_dict_shard_next
-
-                # critic
-                chunk_start = True
-                chunk_end = False
-                g = self._get_critic_state_dict_shard()
-                state_dict_shard = next(g)
-                while True:
-                    try:
-                        state_dict_shard_next = next(g)
-                    except StopIteration:
-                        chunk_end = True
-
+                        target_holder.update_experience_maker.remote(new_actor_state_dict = state_dict_shard)
+                # mark end
+                for target_holder in self.target_holder_list:
+                    target_holder.update_experience_maker.remote(chunk_end=True)
+            # critic
+                # mark start
+                for target_holder in self.target_holder_list:
+                    target_holder.update_experience_maker.remote(chunk_start=True)
+                # sending loop
+                for state_dict_shard in self._get_critic_state_dict_shard():
                     for target_holder in self.target_holder_list:
-                        target_holder.update_experience_maker.remote(
-                            new_critic_state_dict = state_dict_shard,
-                            chunk_start=chunk_start,
-                            chunk_end=chunk_end)
-                    chunk_start = False
-                    if chunk_end:
-                        break
-                    state_dict_shard = state_dict_shard_next
+                        target_holder.update_experience_maker.remote(new_critic_state_dict = state_dict_shard)
+                # mark end
+                for target_holder in self.target_holder_list:
+                    target_holder.update_experience_maker.remote(chunk_end=True)
 
     @ray.method(concurrency_group="model_io")
     def initialize_remote_makers(self):
@@ -206,8 +187,8 @@ class DetachedPPOTrainer(DetachedTrainer):
 
                     for target_holder in self.target_holder_list:
                         target_holder.initialize_experience_maker.remote(
-                            critic_model=self._rm_model_str,
-                            critic_pretrained=self._rm_pretrained,
+                            critic_model=self._cr_model_str,
+                            critic_pretrained=self._cr_pretrained,
                             critic_state_dict=state_dict_shard,
                             chunk_start=chunk_start,
                             chunk_end=chunk_end)

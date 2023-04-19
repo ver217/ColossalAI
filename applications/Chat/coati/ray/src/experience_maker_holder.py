@@ -60,12 +60,13 @@ class ExperienceMakerHolder:
         self._critic_initialized = False
         
         if 'debug' in self.generate_kwargs and self.generate_kwargs['debug'] == True:
-            self.debug = True
+            self._debug = True
         else:
-            self.debug = False
+            self._debug = False
         self.target_auto_balance = False
 
-        if self.debug: print('[maker] Waiting for INIT')
+        if self._debug: 
+            print('[maker] Waiting for INIT')
 
     def _get_ready(self):
         while not self._fully_initialized():
@@ -105,14 +106,16 @@ class ExperienceMakerHolder:
             if not hasattr(self, "_target_idx"):
                 self._target_idx = 0
             chosen_trainer = self.target_trainer_list[self._target_idx]
-            if self.debug: print(f"[maker] sending exp to {chosen_trainer}")
+            if self._debug: 
+                print(f"[maker] sending exp to {chosen_trainer}")
             chosen_trainer.buffer_append.remote(experience)
             self._target_idx = (self._target_idx + 1) % len(self.target_trainer_list)
         else:
             # choose a trainer that has the least experience batch in its detached_replay_buffer
             chosen_trainer = None
             min_length = None
-            if self.debug: print("[maker] choosing tartget trainer")
+            if self._debug: 
+                print("[maker] choosing tartget trainer")
             while chosen_trainer is None:
                 for target_trainer in self.target_trainer_list:
                     try:
@@ -126,7 +129,8 @@ class ExperienceMakerHolder:
                                 chosen_trainer = target_trainer
                     except GetTimeoutError:
                         pass
-            if self.debug: print(f"[maker] sending exp to {chosen_trainer}")
+            if self._debug: 
+                print(f"[maker] sending exp to {chosen_trainer}")
             chosen_trainer.buffer_append.remote(experience)
 
     def workingloop(self, dataset, tokenizer: Optional[Callable[[Any], dict]] = None, times=5000 * 50000):
@@ -155,13 +159,17 @@ class ExperienceMakerHolder:
                                     chunk_end: bool = True):
         '''
             called by trainer
+            chunk_start: Set True at the first call. Before sending state_dict calls
+            chunk_end: Set True at the last call. After sending state_dict calls.
+
             TODO: load_state_dict integrate with model-sharding strategy 
         '''
         if self._fully_initialized():
             return
 
         if chunk_start:
-            if self.debug: print('[maker] INIT')
+            if self._debug: 
+                print('[maker] INIT')
             with torch.no_grad():
                 # (csric) any better way to get model structure?
                 with self.strategy.model_init_context():
@@ -199,7 +207,7 @@ class ExperienceMakerHolder:
                     self.experience_maker.reward_model = self.strategy.prepare(self.experience_maker.reward_model.to(torch.cuda.current_device()))
                 self._critic_initialized = True
                 self._reward_model_initialized = True
-    
+
     def initialize_experience_maker_local(self, 
                                            initial_model_func = None,
                                            reward_model_func = None,
@@ -229,19 +237,22 @@ class ExperienceMakerHolder:
     def update_experience_maker(self, 
                                 new_actor_state_dict: Dict[str, Any] = None, 
                                 new_critic_state_dict: Dict[str, Any] = None,
-                                chunk_start: bool = True,
-                                chunk_end: bool = True):
+                                chunk_start: bool = None,
+                                chunk_end: bool = None):
         '''
             called by trainer
+            chunk_start: Set True at the first call. Before sending state_dict calls
+            chunk_end: Set True at the last call. After sending state_dict calls.
+                
             TODO: load_state_dict integrate with model-sharding strategy
         '''
         _watch_memory = True
         # TODO: reduce malloc
         if chunk_start:
-            if self.debug: print("[maker] UPDATE ")
+            if self._debug: 
+                print("[maker] UPDATE ")
             if _watch_memory:
                 tracemalloc.start()
-
             self._model_visit_lock.acquire()
 
         with torch.no_grad():

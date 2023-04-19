@@ -48,9 +48,9 @@ class DetachedTrainer(ABC):
         self.target_holder_list = []
         
         if 'debug' in self.generate_kwargs and self.generate_kwargs['debug'] == True:
-            self.debug = True
+            self._debug = True
         else:
-            self.debug = False
+            self._debug = False
 
     def update_target_holder_list(self, experience_maker_holder_name_list):
         self.target_holder_name_list = experience_maker_holder_name_list
@@ -69,11 +69,14 @@ class DetachedTrainer(ABC):
     def _learn(self):
         pbar = tqdm(range(self.max_epochs), desc='Train epoch', disable=not is_rank_0())
         for _ in pbar:
-            if self.debug: print("[trainer] sampling exp")
+            if self._debug: 
+                print("[trainer] sampling exp")
             experience = self._buffer_sample()
-            if self.debug: print("[trainer] training step")
+            if self._debug: 
+                print("[trainer] training step")
             metrics = self.training_step(experience)
-            if self.debug: print("[trainer] step over")
+            if self._debug: 
+                print("[trainer] step over")
             pbar.set_postfix(metrics)
 
     def fit(self, num_episodes: int = 50000, max_timesteps: int = 500, update_timesteps: int = 5000) -> None:
@@ -91,13 +94,15 @@ class DetachedTrainer(ABC):
     @ray.method(concurrency_group="buffer_length")
     def buffer_get_length(self):
         # called by ExperienceMakerHolder
-        if self.debug: print("[trainer]                telling length")
+        if self._debug: 
+            print("[trainer]                telling length")
         return self.detached_replay_buffer.get_length()
 
     @ray.method(concurrency_group="buffer_append")
     def buffer_append(self, experience: Experience):
         # called by ExperienceMakerHolder
-        if self.debug: print(f"[trainer]               receiving exp.")
+        if self._debug: 
+            print(f"[trainer]               receiving exp.")
         self.detached_replay_buffer.append(experience)
 
     @ray.method(concurrency_group="buffer_sample")

@@ -216,4 +216,4 @@ class ColossalAIStrategy(DDPStrategy):
                 if isinstance(module, LoraLinear):
                     module.merge_weights = True
                     module.eval()
-            yield from model.state_dict_shard(max_shard_size=1024*16)
+            yield from model.state_dict_shard(max_shard_size=1024)
