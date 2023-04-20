@@ -86,19 +86,13 @@ def get_tokenizer_from_args(model: str, **kwargs):
         tokenizer = AutoTokenizer.from_pretrained("facebook/opt-350m")
     elif model == 'llama':
         pretrain_path = kwargs["pretrain"]
-        tokenizer = LlamaTokenizer.from_pretrained(pretrain_path)
-        tokenizer.eos_token = '<\s>'
+        tokenizer = AutoTokenizer.from_pretrained(pretrain_path)
     elif model == 'roberta':
         tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
     else:
         raise ValueError(f'Unsupported model "{model}"')
 
-    if model == 'llama':
-        actor = kwargs["actor"]
-        tokenizer = prepare_llama_tokenizer_and_embedding(tokenizer, actor)
-    else:
-        tokenizer.pad_token = tokenizer.eos_token
-        
+    tokenizer.pad_token = tokenizer.eos_token
     return tokenizer
 
 def set_dist_env(env_info: Dict[str, str]):

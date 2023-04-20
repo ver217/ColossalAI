@@ -5,7 +5,7 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
-from coati.models.base import LM, Actor, RewardModel
+from coati.models.base import LM, Actor, RewardModel, Critic
 from coati.models.lora import LoraLinear
 from torch.optim import Optimizer
 from transformers.modeling_utils import PreTrainedModel
@@ -159,8 +159,12 @@ class ColossalAIStrategy(DDPStrategy):
             return model.module
         return model
 
-    def _unwrap_model(self, model: Union[nn.Module, ZeroDDP]) -> nn.Module:
+    @staticmethod
+    def _unwrap_critic(critic: Critic) -> nn.Module:
+        return Strategy._unwrap_critic(critic)
 
+
+    def _unwrap_model(self, model: Union[nn.Module, ZeroDDP]) -> nn.Module:
         return super()._unwrap_model(model)
 
     def save_model(self,

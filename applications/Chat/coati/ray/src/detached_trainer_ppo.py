@@ -124,7 +124,7 @@ class DetachedPPOTrainer(DetachedTrainer):
                 for target_holder in self.target_holder_list:
                     target_holder.update_experience_maker.remote(chunk_start=True)
                 # sending loop
-                for state_dict_shard in self._get_model_state_dict_shard(self.actor, **config):
+                for state_dict_shard in self._get_model_state_dict_shard(self.strategy._unwrap_actor(self.actor), **config):
                     for target_holder in self.target_holder_list:
                         target_holder.update_experience_maker.remote(new_actor_state_dict = state_dict_shard)
                 # mark end
@@ -135,7 +135,7 @@ class DetachedPPOTrainer(DetachedTrainer):
                 for target_holder in self.target_holder_list:
                     target_holder.update_experience_maker.remote(chunk_start=True)
                 # sending loop
-                for state_dict_shard in self._get_model_state_dict_shard(self.critic, **config):
+                for state_dict_shard in self._get_model_state_dict_shard(self.strategy._unwrap_critic(self.critic), **config):
                     for target_holder in self.target_holder_list:
                         target_holder.update_experience_maker.remote(new_critic_state_dict = state_dict_shard)
                 # mark end
@@ -153,7 +153,7 @@ class DetachedPPOTrainer(DetachedTrainer):
                 for target_holder in self.target_holder_list:
                     target_holder.initialize_experience_maker.remote(actor_model=self._model_str,actor_pretrained=self._pretrained,chunk_start=True)
                 # sending loop
-                for state_dict_shard in self._get_model_state_dict_shard(self.actor, **config):
+                for state_dict_shard in self._get_model_state_dict_shard(self.strategy._unwrap_actor(self.actor), **config):
                     for target_holder in self.target_holder_list:
                         target_holder.initialize_experience_maker.remote(actor_state_dict=state_dict_shard)
                 # mark end
@@ -164,7 +164,7 @@ class DetachedPPOTrainer(DetachedTrainer):
                 for target_holder in self.target_holder_list:
                     target_holder.initialize_experience_maker.remote(critic_model=self._cr_model_str,critic_pretrained=self._cr_pretrained,chunk_start=True)
                 # sending loop
-                for state_dict_shard in self._get_model_state_dict_shard(self.critic, **config):
+                for state_dict_shard in self._get_model_state_dict_shard(self.strategy._unwrap_critic(self.critic), **config):
                     for target_holder in self.target_holder_list:
                         target_holder.initialize_experience_maker.remote(critic_state_dict=state_dict_shard)
                 # mark end

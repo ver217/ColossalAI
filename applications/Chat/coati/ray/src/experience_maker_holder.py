@@ -170,13 +170,13 @@ class ExperienceMakerHolder:
                 # (csric) any better way to get model structure?
                 with self.strategy.model_init_context():
                     if not self._actor_initialized and actor_model is not None:
-                        self.experience_maker.actor = get_actor_from_args(actor_model, actor_pretrained)
+                        self.experience_maker.actor = get_actor_from_args(actor_model, actor_pretrained).half().requires_grad_(False)
                     if not self._critic_initialized and critic_model is not None:
-                        self.experience_maker.critic = get_critic_from_args(critic_model, critic_pretrained)
+                        self.experience_maker.critic = get_critic_from_args(critic_model, critic_pretrained).half().requires_grad_(False)
                     if not self._initial_model_initialized and actor_model is not None:
-                        self.experience_maker.initial_model = get_actor_from_args(actor_model, actor_pretrained)
+                        self.experience_maker.initial_model = get_actor_from_args(actor_model, actor_pretrained).half().requires_grad_(False)
                     if not self._reward_model_initialized and critic_model is not None:
-                        self.experience_maker.reward_model = get_reward_model_from_args(critic_model, critic_pretrained)
+                        self.experience_maker.reward_model = get_reward_model_from_args(critic_model, critic_pretrained).half().requires_grad_(False)
 
         with torch.no_grad():
             if not self._actor_initialized and actor_state_dict is not None:
@@ -188,21 +188,24 @@ class ExperienceMakerHolder:
             if not self._reward_model_initialized and critic_state_dict is not None:
                 self.experience_maker.reward_model.load_state_dict(critic_state_dict, strict=False)
 
+
         if chunk_end:
-            if actor_model is not None:
-                if not self._actor_initialized:
-                    self.experience_maker.actor = self.strategy.prepare(self.experience_maker.actor.to(torch.cuda.current_device()))
-                if not self._initial_model_initialized:
-                    self.experience_maker.initial_model = self.strategy.prepare(self.experience_maker.initial_model.to(torch.cuda.current_device()))
-                self._actor_initialized = True
-                self._initial_model_initialized = True
-            if critic_model is not None:
-                if not self._critic_initialized:
-                    self.experience_maker.critic = self.strategy.prepare(self.experience_maker.critic.to(torch.cuda.current_device()))
-                if not self._reward_model_initialized:
-                    self.experience_maker.reward_model = self.strategy.prepare(self.experience_maker.reward_model.to(torch.cuda.current_device()))
-                self._critic_initialized = True
-                self._reward_model_initialized = True
+            with torch.no_grad():
+                if actor_model is not None:
+                    if not self._actor_initialized:
+                        self.experience_maker.actor = self.strategy.prepare(self.experience_maker.actor.to(torch.cuda.current_device()))
+                    if not self._initial_model_initialized:
+                        self.experience_maker.initial_model = self.strategy.prepare(self.experience_maker.initial_model.to(torch.cuda.current_device()))
+                    self._actor_initialized = True
+                    self._initial_model_initialized = True
+                if critic_model is not None:
+                    if not self._critic_initialized:
+                        self.experience_maker.critic = self.strategy.prepare(self.experience_maker.critic.to(torch.cuda.current_device()))
+                    if not self._reward_model_initialized:
+                        self.experience_maker.reward_model = self.strategy.prepare(self.experience_maker.reward_model.to(torch.cuda.current_device()))
+                    self._critic_initialized = True
+                    self._reward_model_initialized = True
+
 
     def initialize_experience_maker_local(self,
                                           initial_model_func=None,
