@@ -96,7 +96,7 @@ def main(args):
     
 
     # trainer send its actor and critic to experience holders.
-    ray.get(trainer_ref.initialize_remote_makers.remote())
+    # ray.get(trainer_ref.initialize_remote_makers.remote())
 
     # configure sampler
     dataset = pd.read_csv(args.prompt_path)['prompt']

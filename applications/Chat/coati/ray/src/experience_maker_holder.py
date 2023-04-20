@@ -32,7 +32,6 @@ class ExperienceMakerHolder:
     def __init__(self,
                  detached_trainer_name_list: List[str],
                  strategy: str,
-                 
                  env_info: Dict[str, str] = None,
                  experience_batch_size: int = 8,
                  kl_coef: float = 0.1,
@@ -48,24 +47,22 @@ class ExperienceMakerHolder:
         self.experience_batch_size = experience_batch_size
         self.kl_coef = kl_coef
         self.generate_kwargs = generate_kwargs
-        # Need a trainer to give an actor and a critic via initialize_experience_maker(...)
         actor, critic, reward_model, initial_model = None, None, None, None
         self.experience_maker = NaiveExperienceMaker(actor, critic, reward_model, initial_model, self.kl_coef)
+
         self._model_visit_lock = Lock()
-        
-        
         self._initial_model_initialized = False
         self._reward_model_initialized = False
         self._actor_initialized = False
         self._critic_initialized = False
-        
+
         if 'debug' in self.generate_kwargs and self.generate_kwargs['debug'] == True:
             self._debug = True
         else:
             self._debug = False
         self.target_auto_balance = False
 
-        if self._debug: 
+        if self._debug:
             print('[maker] Waiting for INIT')
 
     def _get_ready(self):
@@ -82,7 +79,6 @@ class ExperienceMakerHolder:
         if not self._critic_initialized:
             return False
         return True
-    
 
     def update_target_trainer_list(self, detached_trainer_name_list):
         self.target_trainer_list = []
@@ -106,7 +102,7 @@ class ExperienceMakerHolder:
             if not hasattr(self, "_target_idx"):
                 self._target_idx = 0
             chosen_trainer = self.target_trainer_list[self._target_idx]
-            if self._debug: 
+            if self._debug:
                 print(f"[maker] sending exp to {chosen_trainer}")
             chosen_trainer.buffer_append.remote(experience)
             self._target_idx = (self._target_idx + 1) % len(self.target_trainer_list)
@@ -114,7 +110,7 @@ class ExperienceMakerHolder:
             # choose a trainer that has the least experience batch in its detached_replay_buffer
             chosen_trainer = None
             min_length = None
-            if self._debug: 
+            if self._debug:
                 print("[maker] choosing tartget trainer")
             while chosen_trainer is None:
                 for target_trainer in self.target_trainer_list:
@@ -129,7 +125,7 @@ class ExperienceMakerHolder:
                                 chosen_trainer = target_trainer
                     except GetTimeoutError:
                         pass
-            if self._debug: 
+            if self._debug:
                 print(f"[maker] sending exp to {chosen_trainer}")
             chosen_trainer.buffer_append.remote(experience)
 
@@ -148,15 +144,15 @@ class ExperienceMakerHolder:
             self._send_experience(experience=experience)
 
     @ray.method(concurrency_group="model_io")
-    def initialize_experience_maker(self, 
-                                    actor_model: str = None, 
+    def initialize_experience_maker(self,
+                                    actor_model: str = None,
                                     actor_pretrained: str = None,
                                     actor_state_dict: Dict[str, Any] = None,
                                     critic_model: str = None,
                                     critic_pretrained: str = None,
                                     critic_state_dict: Dict[str, Any] = None,
-                                    chunk_start: bool = True,
-                                    chunk_end: bool = True):
+                                    chunk_start: bool = None,
+                                    chunk_end: bool = None):
         '''
             called by trainer
             chunk_start: Set True at the first call. Before sending state_dict calls
@@ -168,7 +164,7 @@ class ExperienceMakerHolder:
             return
 
         if chunk_start:
-            if self._debug: 
+            if self._debug:
                 print('[maker] INIT')
             with torch.no_grad():
                 # (csric) any better way to get model structure?
@@ -183,13 +179,13 @@ class ExperienceMakerHolder:
                         self.experience_maker.reward_model = get_reward_model_from_args(critic_model, critic_pretrained)
 
         with torch.no_grad():
-            if not self._actor_initialized and actor_model is not None:
+            if not self._actor_initialized and actor_state_dict is not None:
                 self.experience_maker.actor.model.load_state_dict(actor_state_dict, strict=False)
-            if not self._critic_initialized and critic_model is not None:
+            if not self._critic_initialized and critic_state_dict is not None:
                 self.experience_maker.critic.load_state_dict(critic_state_dict, strict=False)
-            if not self._initial_model_initialized and actor_model is not None:
+            if not self._initial_model_initialized and actor_state_dict is not None:
                 self.experience_maker.initial_model.model.load_state_dict(actor_state_dict, strict=False)
-            if not self._reward_model_initialized and critic_model is not None:
+            if not self._reward_model_initialized and critic_state_dict is not None:
                 self.experience_maker.reward_model.load_state_dict(critic_state_dict, strict=False)
 
         if chunk_end:
@@ -208,11 +204,11 @@ class ExperienceMakerHolder:
                 self._critic_initialized = True
                 self._reward_model_initialized = True
 
-    def initialize_experience_maker_local(self, 
-                                           initial_model_func = None,
-                                           reward_model_func = None,
-                                           actor_func = None,
-                                           critic_func = None):
+    def initialize_experience_maker_local(self,
+                                          initial_model_func=None,
+                                          reward_model_func=None,
+                                          actor_func=None,
+                                          critic_func=None):
         '''
             Use function call to construct the model here, because some strategy requieres env_info
             The model initialized here will be IGNORED in initialize_experience_maker.
@@ -231,11 +227,10 @@ class ExperienceMakerHolder:
         if reward_model_func is not None:
             self.experience_maker.reward_model = reward_model_func()
             self._reward_model_initialized = True
-    
-    
+
     @ray.method(concurrency_group="model_io")
-    def update_experience_maker(self, 
-                                new_actor_state_dict: Dict[str, Any] = None, 
+    def update_experience_maker(self,
+                                new_actor_state_dict: Dict[str, Any] = None,
                                 new_critic_state_dict: Dict[str, Any] = None,
                                 chunk_start: bool = None,
                                 chunk_end: bool = None):
@@ -247,9 +242,8 @@ class ExperienceMakerHolder:
             TODO: load_state_dict integrate with model-sharding strategy
         '''
         _watch_memory = True
-        # TODO: reduce malloc
         if chunk_start:
-            if self._debug: 
+            if self._debug:
                 print("[maker] UPDATE ")
             if _watch_memory:
                 tracemalloc.start()
@@ -262,11 +256,6 @@ class ExperienceMakerHolder:
                 self.experience_maker.critic.load_state_dict(new_critic_state_dict, strict=False)
 
         if chunk_end:
-            if new_actor_state_dict is not None:
-                self.experience_maker.actor = self.strategy.prepare(self.experience_maker.actor)
-            if new_critic_state_dict is not None:
-                self.experience_maker.critic = self.strategy.prepare(self.experience_maker.critic)
-
             self._model_visit_lock.release()
             if _watch_memory:
                 current, peak = tracemalloc.get_traced_memory()

@@ -114,18 +114,17 @@ class DetachedPPOTrainer(DetachedTrainer):
         self._cr_pretrained = cr_pretrained
 
     @ray.method(concurrency_group="model_io")
-    def _update_remote_makers(self):
+    def _update_remote_makers(self, **config):
         # TODO: balance duties
         if is_rank_0():
             self.update_target_holder_list(self.target_holder_name_list)
-
             with torch.no_grad():
             # actor:
                 # mark start
                 for target_holder in self.target_holder_list:
                     target_holder.update_experience_maker.remote(chunk_start=True)
                 # sending loop
-                for state_dict_shard in self._get_actor_state_dict_shard():
+                for state_dict_shard in self._get_model_state_dict_shard(self.actor, **config):
                     for target_holder in self.target_holder_list:
                         target_holder.update_experience_maker.remote(new_actor_state_dict = state_dict_shard)
                 # mark end
@@ -136,7 +135,7 @@ class DetachedPPOTrainer(DetachedTrainer):
                 for target_holder in self.target_holder_list:
                     target_holder.update_experience_maker.remote(chunk_start=True)
                 # sending loop
-                for state_dict_shard in self._get_critic_state_dict_shard():
+                for state_dict_shard in self._get_model_state_dict_shard(self.critic, **config):
                     for target_holder in self.target_holder_list:
                         target_holder.update_experience_maker.remote(new_critic_state_dict = state_dict_shard)
                 # mark end
@@ -144,58 +143,33 @@ class DetachedPPOTrainer(DetachedTrainer):
                     target_holder.update_experience_maker.remote(chunk_end=True)
 
     @ray.method(concurrency_group="model_io")
-    def initialize_remote_makers(self):
+    def initialize_remote_makers(self, **config):
         # TODO: balance duties
         if is_rank_0():
             self.update_target_holder_list(self.target_holder_name_list)
-
             with torch.no_grad():
-                # actor / initial_model
-                chunk_start = True
-                chunk_end = False
-                g = self._get_actor_state_dict_shard()
-
-                state_dict_shard = next(g)
-                while True:
-                    try:
-                        state_dict_shard_next = next(g)
-                    except StopIteration:
-                        chunk_end = True
-
+            # actor / initial_model:
+                # mark start
+                for target_holder in self.target_holder_list:
+                    target_holder.initialize_experience_maker.remote(actor_model=self._model_str,actor_pretrained=self._pretrained,chunk_start=True)
+                # sending loop
+                for state_dict_shard in self._get_model_state_dict_shard(self.actor, **config):
                     for target_holder in self.target_holder_list:
-                        target_holder.initialize_experience_maker.remote(
-                            actor_model=self._model_str,
-                            actor_pretrained=self._pretrained,
-                            actor_state_dict=state_dict_shard,
-                            chunk_start=chunk_start,
-                            chunk_end=chunk_end)
-                    chunk_start = False
-                    if chunk_end:
-                        break
-                    state_dict_shard = state_dict_shard_next
-
-                # critic / reward_model
-                chunk_start = True
-                chunk_end = False
-                g = self._get_critic_state_dict_shard()
-                state_dict_shard = next(g)
-                while True:
-                    try:
-                        state_dict_shard_next = next(g)
-                    except StopIteration:
-                        chunk_end = True
-
+                        target_holder.initialize_experience_maker.remote(actor_state_dict=state_dict_shard)
+                # mark end
+                for target_holder in self.target_holder_list:
+                    target_holder.initialize_experience_maker.remote(actor_model=self._model_str, chunk_end=True)
+            # critic / reward_model:
+                # mark start
+                for target_holder in self.target_holder_list:
+                    target_holder.initialize_experience_maker.remote(critic_model=self._cr_model_str,critic_pretrained=self._cr_pretrained,chunk_start=True)
+                # sending loop
+                for state_dict_shard in self._get_model_state_dict_shard(self.critic, **config):
                     for target_holder in self.target_holder_list:
-                        target_holder.initialize_experience_maker.remote(
-                            critic_model=self._cr_model_str,
-                            critic_pretrained=self._cr_pretrained,
-                            critic_state_dict=state_dict_shard,
-                            chunk_start=chunk_start,
-                            chunk_end=chunk_end)
-                    chunk_start = False
-                    if chunk_end:
-                        break
-                    state_dict_shard = state_dict_shard_next
+                        target_holder.initialize_experience_maker.remote(critic_state_dict=state_dict_shard)
+                # mark end
+                for target_holder in self.target_holder_list:
+                    target_holder.initialize_experience_maker.remote(critic_model=self._cr_model_str, chunk_end=True)
 
     @ray.method(concurrency_group="compute")
     def training_step(self, experience: Experience) -> Dict[str, float]:
@@ -260,12 +234,12 @@ class DetachedPPOTrainer(DetachedTrainer):
         elif isinstance(self.strategy, NaiveStrategy):
             return self.critic
 
-    def _get_actor_state_dict_shard(self, **config):
-        for state_dict in self.strategy.get_model_state_dict_shard(self.actor, **config):
-            yield state_dict_to(state_dict)
-
-    def _get_critic_state_dict_shard(self, **config):
-        for state_dict in self.strategy.get_model_state_dict_shard(self.critic, **config):
+    def _get_model_state_dict_shard(self, model: torch.nn.Module, **config):
+        try:
+            self.strategy.merge_lora_weight(model)
+        except AttributeError:
+            pass
+        for state_dict in self.strategy.get_model_state_dict_shard(model, **config):
             yield state_dict_to(state_dict)
 
 

@@ -75,10 +75,12 @@ class NaiveStrategy(Strategy):
 
     def get_model_state_dict_shard(self, model: nn.Module, **config):
         # TODO: implement sharding on naive strategy
+        state_dict = model.state_dict()
+        yield state_dict
+        
+    def merge_lora_weight(self, model: nn.Module):
         unwrapped_model = self._unwrap_model(model)
         for module in unwrapped_model.modules():
             if isinstance(module, LoraLinear):
                 module.merge_weights = True
                 module.eval()
-        state_dict = model.state_dict()
-        yield state_dict
