@@ -74,6 +74,7 @@ class DetachedPPOTrainer(DetachedTrainer):
             dataloader_pin_memory: bool = True,
             callbacks: List[Callback] = [],
             eval_performance: bool = False,
+            debug: bool = False,
             **generate_kwargs) -> None:
         # set environment variables
         if env_info:
@@ -123,6 +124,7 @@ class DetachedPPOTrainer(DetachedTrainer):
                          max_epochs=max_epochs,
                          dataloader_pin_memory=dataloader_pin_memory,
                          callbacks=callbacks,
+                         debug=debug,
                          **generate_kwargs)
 
         # for remote maker initialization

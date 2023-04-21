@@ -46,6 +46,7 @@ class ExperienceMakerHolder:
                  kl_coef: float = 0.1,
                  callbacks: List[Callback] = [],
                  eval_performance: bool = False,
+                 debug: bool = False,
                  **generate_kwargs):
         # set environment variables
         if env_info:
@@ -69,10 +70,7 @@ class ExperienceMakerHolder:
         self._actor_initialized = False
         self._critic_initialized = False
 
-        if 'debug' in self.generate_kwargs and self.generate_kwargs['debug'] == True:
-            self._debug = True
-        else:
-            self._debug = False
+        self._debug = debug
         self.target_auto_balance = False
 
         if self._debug:
@@ -275,7 +273,7 @@ class ExperienceMakerHolder:
 
             TODO: load_state_dict integrate with model-sharding strategy
         '''
-        _watch_memory = True
+        _watch_memory = self._debug
         if chunk_start:
             if self._debug:
                 print("[maker] UPDATE ")

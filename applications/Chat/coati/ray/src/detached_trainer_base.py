@@ -38,6 +38,7 @@ class DetachedTrainer(ABC):
                  max_epochs: int = 1,
                  dataloader_pin_memory: bool = True,
                  callbacks: List[Callback] = [],
+                 debug: bool = False,
                  **generate_kwargs) -> None:
         super().__init__()
         self.detached_replay_buffer = DetachedReplayBuffer(train_batch_size,
@@ -51,10 +52,7 @@ class DetachedTrainer(ABC):
         self.target_holder_name_list = experience_maker_holder_name_list
         self.target_holder_list = []
 
-        if 'debug' in self.generate_kwargs and self.generate_kwargs['debug'] == True:
-            self._debug = True
-        else:
-            self._debug = False
+        self._debug = debug
 
     def update_target_holder_list(self, experience_maker_holder_name_list):
         self.target_holder_name_list = experience_maker_holder_name_list
