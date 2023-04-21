@@ -157,7 +157,7 @@ def main(args):
                                    update_timesteps=args.update_timesteps))
 
     num_exp_per_maker = args.num_episodes * args.max_timesteps // args.update_timesteps * \
-        args.max_epochs + 3  # +3 for fault tolerance
+        args.max_epochs * args.num_trainers + 3  # +3 for fault tolerance
     wait_tasks.append(experience_holder_ref.workingloop.remote(random_prompts, tokenize_fn, times=num_exp_per_maker))
 
     ray.get(wait_tasks)
