@@ -89,6 +89,8 @@ class ExperienceMakerHolder:
                                                             reward_model_numel)
             self.callbacks.append(evaluator)
 
+        self.generate_kwargs = _set_default_generate_kwargs(self.generate_kwargs, self.experience_maker.actor)
+
     def _fully_initialized(self):
         if not self._initial_model_initialized:
             return False
@@ -306,3 +308,16 @@ class ExperienceMakerHolder:
         for callback in self.callbacks:
             if hasattr(callback, 'on_finish'):
                 callback.on_finish()
+
+
+def _set_default_generate_kwargs(generate_kwargs: dict, actor: Actor) -> None:
+    origin_model = actor.model
+    new_kwargs = {**generate_kwargs}
+    # use huggingface models method directly
+    if 'prepare_inputs_fn' not in generate_kwargs and hasattr(origin_model, 'prepare_inputs_for_generation'):
+        new_kwargs['prepare_inputs_fn'] = origin_model.prepare_inputs_for_generation
+
+    if 'update_model_kwargs_fn' not in generate_kwargs and hasattr(origin_model, '_update_model_kwargs_for_generation'):
+        new_kwargs['update_model_kwargs_fn'] = origin_model._update_model_kwargs_for_generation
+
+    return new_kwargs
