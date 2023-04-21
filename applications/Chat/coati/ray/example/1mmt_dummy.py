@@ -84,15 +84,18 @@ def main(args):
     tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
     tokenizer.pad_token = tokenizer.eos_token
 
+    def trainer_model_fn():
+        actor = get_actor_from_args(args.model, args.pretrain).half().cuda()
+        critic = get_critic_from_args(args.model, args.pretrain).half().cuda()
+        return actor, critic
+
     # configure Trainer
     trainer_refs = [
         DetachedPPOTrainer.options(name=f"trainer{i}", num_gpus=1, max_concurrency=2).remote(
             experience_maker_holder_name_list=["maker1"],
-            strategy=args.trainer_strategy,
-            model=args.model,
+            strategy_fn=partial(get_strategy_from_args, args.trainer_strategy),
+            model_fn=trainer_model_fn,
             env_info=env_info_trainer,
-            pretrained=args.pretrain,
-            lora_rank=args.lora_rank,
             train_batch_size=args.train_batch_size,
             buffer_limit=16,
             max_epochs=args.max_epochs,

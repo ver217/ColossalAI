@@ -1,10 +1,9 @@
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import ray
 import torch
 from coati.experience_maker import Experience, NaiveExperienceMaker
 from coati.models.base import Actor, Critic
-from coati.models.generation_utils import update_model_kwargs_fn
 from coati.models.loss import PolicyLoss, ValueLoss
 from coati.trainer.callbacks import Callback
 from coati.trainer.callbacks.performance_evaluator import TrainerPerformaceEvaluator
@@ -56,13 +55,8 @@ class DetachedPPOTrainer(DetachedTrainer):
     def __init__(
         self,
         experience_maker_holder_name_list: List[str],
-        strategy: str,
-        model: str,
-        pretrained: str = None,
-        lora_rank: int = 0,
-        cr_model: str = None,    # if not None, use below cr settings for critic
-        cr_pretrained: str = None,
-        cr_lora_rank: int = 0,
+        strategy_fn: Callable[[], Strategy],
+        model_fn: Callable[[], Tuple[Actor, Critic]],
         env_info: Dict[str, str] = None,
         train_batch_size: int = 8,
         buffer_limit: int = 0,
@@ -79,16 +73,10 @@ class DetachedPPOTrainer(DetachedTrainer):
         if env_info:
             set_dist_env(env_info=env_info)
         # configure strategy
-        self.strategy = get_strategy_from_args(strategy)
+        self.strategy = strategy_fn()
         # configure models, loss and optimizers
-        if cr_model is None:
-            cr_model = model
-            cr_pretrained = pretrained
-            cr_lora_rank = lora_rank
-
         with self.strategy.model_init_context():
-            self.actor = get_actor_from_args(model, pretrained, lora_rank)
-            self.critic = get_critic_from_args(cr_model, cr_pretrained, cr_lora_rank)
+            self.actor, self.critic = model_fn()
 
         if eval_performance:
             actor_numel = get_model_numel(self.actor)
@@ -96,11 +84,7 @@ class DetachedPPOTrainer(DetachedTrainer):
             evaluator = TrainerPerformaceEvaluator(actor_numel, critic_numel)
             callbacks = callbacks + [evaluator]
 
-        if strategy != 'colossalai_gemini':
-            self.actor.to(torch.cuda.current_device())    # .to(torch.float16)
-            self.critic.to(torch.cuda.current_device())    # .to(torch.float16)
-
-        if strategy.startswith('colossalai'):
+        if isinstance(self.strategy, ColossalAIStrategy):
             self.actor_optim = HybridAdam(self.actor.parameters(), lr=1e-7)
             self.critic_optim = HybridAdam(self.critic.parameters(), lr=1e-7)
         else:
@@ -122,12 +106,6 @@ class DetachedPPOTrainer(DetachedTrainer):
                          dataloader_pin_memory=dataloader_pin_memory,
                          callbacks=callbacks,
                          debug=debug)
-
-        # for remote maker initialization
-        self._model_str = model
-        self._cr_model_str = cr_model
-        self._pretrained = pretrained
-        self._cr_pretrained = cr_pretrained
 
     @ray.method(concurrency_group="model_io")
     @torch.no_grad()
