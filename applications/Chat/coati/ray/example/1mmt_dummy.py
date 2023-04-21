@@ -1,15 +1,18 @@
 import argparse
 import os
 import socket
-from copy import deepcopy
 from functools import partial
 
 import ray
 import torch
-from coati.models.base import RewardModel
 from coati.ray.src.detached_trainer_ppo import DetachedPPOTrainer
 from coati.ray.src.experience_maker_holder import ExperienceMakerHolder
-from coati.ray.src.utils import get_actor_from_args, get_critic_from_args, get_reward_model_from_args
+from coati.ray.src.utils import (
+    get_actor_from_args,
+    get_critic_from_args,
+    get_reward_model_from_args,
+    get_strategy_from_args,
+)
 from transformers import AutoTokenizer, BloomTokenizerFast
 from transformers.models.gpt2.configuration_gpt2 import GPT2Config
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
@@ -106,10 +109,18 @@ def main(args):
         ) for i, env_info_trainer in enumerate(env_info_trainers)
     ]
 
+    def model_fn():
+        actor = get_actor_from_args(args.model, args.pretrain).half().cuda()
+        critic = get_critic_from_args(args.model, args.pretrain).half().cuda()
+        reward_model = get_reward_model_from_args(args.model, args.pretrain).half().cuda()
+        initial_model = get_actor_from_args(args.model, args.pretrain).half().cuda()
+        return actor, critic, reward_model, initial_model
+
     # configure Experience Maker
     experience_holder_ref = ExperienceMakerHolder.options(name="maker1", num_gpus=1, max_concurrency=2).remote(
         detached_trainer_name_list=[f'trainer{i}' for i in range(args.num_trainers)],
-        strategy=args.maker_strategy,
+        strategy_fn=partial(get_strategy_from_args, args.maker_strategy),
+        model_fn=model_fn,
         env_info=env_info_maker,
         experience_batch_size=args.experience_batch_size,
         kl_coef=0.1,
@@ -124,19 +135,6 @@ def main(args):
         use_cache=True,
         debug=args.debug,
     )
-
-    def init_inference_model(fn, model_name, pretrained):
-        model = fn(model_name, pretrained)
-        return model.half().cuda()
-
-    # init maker locally
-    ray.get(
-        experience_holder_ref.initialize_experience_maker_local.remote(
-            initial_model_func=partial(init_inference_model, get_actor_from_args, args.model, args.pretrain),
-            reward_model_func=partial(init_inference_model, get_reward_model_from_args, args.model, args.pretrain),
-            actor_func=partial(init_inference_model, get_actor_from_args, args.model, args.pretrain),
-            critic_func=partial(init_inference_model, get_critic_from_args, args.model, args.pretrain),
-        ))
 
     # configure sampler
     random_prompts = torch.randint(tokenizer.vocab_size, (1000, 400))

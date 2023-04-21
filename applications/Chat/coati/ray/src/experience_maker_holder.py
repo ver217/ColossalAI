@@ -3,7 +3,7 @@ import time
 import tracemalloc
 from copy import deepcopy
 from threading import Lock
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import ray
 import torch
@@ -36,39 +36,52 @@ class ExperienceMakerHolder:
         strategy:
         experience_batch_size: batch size of generated experience
         kl_coef: the coefficient of kl divergence loss
+        sync_models_from_trainers: whether to sync models from trainers. If True, you must call update_experience_maker() in trainers to sync models.
     '''
 
-    def __init__(self,
-                 detached_trainer_name_list: List[str],
-                 strategy: str,
-                 env_info: Dict[str, str] = None,
-                 experience_batch_size: int = 8,
-                 kl_coef: float = 0.1,
-                 callbacks: List[Callback] = [],
-                 eval_performance: bool = False,
-                 debug: bool = False,
-                 **generate_kwargs):
+    def __init__(
+            self,
+            detached_trainer_name_list: List[str],
+            strategy_fn: Callable[[], Strategy],
+    # a function returns (actor, critic, reward_model, initial_model)
+            model_fn: Callable[[], Tuple[Actor, Critic, RewardModel, Actor]],
+            env_info: Dict[str, str] = None,
+            sync_models_from_trainers: bool = False,
+            experience_batch_size: int = 8,
+            kl_coef: float = 0.1,
+            callbacks: List[Callback] = [],
+            eval_performance: bool = False,
+            debug: bool = False,
+            **generate_kwargs):
         # set environment variables
         if env_info:
             set_dist_env(env_info=env_info)
         self.target_trainer_list = []
         for name in detached_trainer_name_list:
             self.target_trainer_list.append(ray.get_actor(name, namespace=os.environ["RAY_NAMESPACE"]))
-        self.strategy_str = strategy
-        self.strategy = get_strategy_from_args(strategy)
+        self.strategy = strategy_fn()
         self.experience_batch_size = experience_batch_size
         self.kl_coef = kl_coef
-        self.generate_kwargs = generate_kwargs
-        actor, critic, reward_model, initial_model = None, None, None, None
+        # init models
+        with self.strategy.model_init_context():
+            actor, critic, reward_model, initial_model = model_fn()
+        self.generate_kwargs = _set_default_generate_kwargs(generate_kwargs, actor)
+        if eval_performance:
+            actor_numel = get_model_numel(actor)
+            critic_numel = get_model_numel(critic)
+            initial_model_numel = get_model_numel(initial_model)
+            reward_model_numel = get_model_numel(reward_model)
+            evaluator = ExperienceMakerPerformanceEvaluator(actor_numel, critic_numel, initial_model_numel,
+                                                            reward_model_numel)
+            callbacks = callbacks + [evaluator]
+
+        actor, critic, reward_model, initial_model = self.strategy.prepare(actor, critic, reward_model, initial_model)
         self.experience_maker = NaiveExperienceMaker(actor, critic, reward_model, initial_model, self.kl_coef)
         self.callbacks = callbacks
-        self.eval_performance = eval_performance
 
         self._model_visit_lock = Lock()
-        self._initial_model_initialized = False
-        self._reward_model_initialized = False
-        self._actor_initialized = False
-        self._critic_initialized = False
+
+        self._is_fully_initialized = not sync_models_from_trainers
 
         self._debug = debug
         self.target_auto_balance = False
@@ -79,28 +92,9 @@ class ExperienceMakerHolder:
     def _get_ready(self):
         while not self._fully_initialized():
             time.sleep(1.0)
-        # setup performance evaluator
-        if self.eval_performance:
-            actor_numel = get_model_numel(self.experience_maker.actor)
-            critic_numel = get_model_numel(self.experience_maker.critic)
-            initial_model_numel = get_model_numel(self.experience_maker.initial_model)
-            reward_model_numel = get_model_numel(self.experience_maker.reward_model)
-            evaluator = ExperienceMakerPerformanceEvaluator(actor_numel, critic_numel, initial_model_numel,
-                                                            reward_model_numel)
-            self.callbacks.append(evaluator)
-
-        self.generate_kwargs = _set_default_generate_kwargs(self.generate_kwargs, self.experience_maker.actor)
 
     def _fully_initialized(self):
-        if not self._initial_model_initialized:
-            return False
-        if not self._reward_model_initialized:
-            return False
-        if not self._actor_initialized:
-            return False
-        if not self._critic_initialized:
-            return False
-        return True
+        return self._is_fully_initialized
 
     def update_target_trainer_list(self, detached_trainer_name_list):
         self.target_trainer_list = []
@@ -168,6 +162,7 @@ class ExperienceMakerHolder:
             self._send_experience(experience=experience)
         self._on_finish()
 
+    # TODO(ver217): remove this function
     @ray.method(concurrency_group="model_io")
     def initialize_experience_maker(self,
                                     actor_model: str = None,
@@ -238,40 +233,18 @@ class ExperienceMakerHolder:
                     self._critic_initialized = True
                     self._reward_model_initialized = True
 
-    def initialize_experience_maker_local(self,
-                                          initial_model_func=None,
-                                          reward_model_func=None,
-                                          actor_func=None,
-                                          critic_func=None):
-        '''
-            Use function call to construct the model here, because some strategy requieres env_info
-            The model initialized here will be IGNORED in initialize_experience_maker.
-            initial_model and reward_model can have their own strategy rather than self.strategy. For example, Quantization.
-        '''
-
-        if actor_func is not None:
-            self.experience_maker.actor = actor_func()
-            self._actor_initialized = True
-        if critic_func is not None:
-            self.experience_maker.critic = critic_func()
-            self._critic_initialized = True
-        if initial_model_func is not None:
-            self.experience_maker.initial_model = initial_model_func()
-            self._initial_model_initialized = True
-        if reward_model_func is not None:
-            self.experience_maker.reward_model = reward_model_func()
-            self._reward_model_initialized = True
-
     @ray.method(concurrency_group="model_io")
     def update_experience_maker(self,
                                 new_actor_state_dict: Dict[str, Any] = None,
                                 new_critic_state_dict: Dict[str, Any] = None,
+                                fully_update: bool = False,
                                 chunk_start: bool = None,
                                 chunk_end: bool = None):
         '''
             called by trainer
             chunk_start: Set True at the first call. Before sending state_dict calls
             chunk_end: Set True at the last call. After sending state_dict calls.
+            fully_update: Set True if you want to sync models when initializing
 
             TODO: load_state_dict integrate with model-sharding strategy
         '''
@@ -295,6 +268,8 @@ class ExperienceMakerHolder:
                 current, peak = tracemalloc.get_traced_memory()
                 print(f"Current memory usage is {current / 10**6}MB; Peak was {peak / 10**6}MB")
                 tracemalloc.stop()
+            if fully_update:
+                self._is_fully_initialized = True
 
     def _on_make_experience_start(self) -> None:
         for callback in self.callbacks:
