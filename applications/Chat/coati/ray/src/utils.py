@@ -18,49 +18,49 @@ def is_rank_0() -> bool:
     return not dist.is_initialized() or dist.get_rank() == 0
 
 
-def get_actor_from_args(model: str, pretrained: str = None, lora_rank=0):
+def get_actor_from_args(model: str, pretrained: str = None, config=None, lora_rank=0):
     if model == 'gpt2':
-        actor = GPTActor(pretrained=pretrained, lora_rank=lora_rank)
+        actor = GPTActor(pretrained=pretrained, config=config, lora_rank=lora_rank)
     elif model == 'bloom':
-        actor = BLOOMActor(pretrained=pretrained, lora_rank=lora_rank)
+        actor = BLOOMActor(pretrained=pretrained, config=config, lora_rank=lora_rank)
     elif model == 'opt':
-        actor = OPTActor(pretrained=pretrained, lora_rank=lora_rank)
+        actor = OPTActor(pretrained=pretrained, config=config, lora_rank=lora_rank)
     elif model == 'llama':
-        actor = LlamaActor(pretrained=pretrained, lora_rank=lora_rank)
+        actor = LlamaActor(pretrained=pretrained, config=config, lora_rank=lora_rank)
     elif model == 'roberta':
-        actor = RoBERTaActor(pretrained=pretrained, lora_rank=lora_rank)
+        actor = RoBERTaActor(pretrained=pretrained, config=config, lora_rank=lora_rank)
     else:
         raise ValueError(f'Unsupported actor model "{model}"')
     return actor
 
 
-def get_critic_from_args(model: str, pretrained: str = None, lora_rank=0):
+def get_critic_from_args(model: str, pretrained: str = None, config=None, lora_rank=0):
     if model == 'gpt2':
-        critic = GPTCritic(pretrained=pretrained, lora_rank=lora_rank, use_action_mask=True)
+        critic = GPTCritic(pretrained=pretrained, lora_rank=lora_rank, config=config, use_action_mask=True)
     elif model == 'bloom':
-        critic = BLOOMCritic(pretrained=pretrained, lora_rank=lora_rank, use_action_mask=True)
+        critic = BLOOMCritic(pretrained=pretrained, lora_rank=lora_rank, config=config, use_action_mask=True)
     elif model == 'opt':
-        critic = OPTCritic(pretrained=pretrained, lora_rank=lora_rank, use_action_mask=True)
+        critic = OPTCritic(pretrained=pretrained, lora_rank=lora_rank, config=config, use_action_mask=True)
     elif model == 'llama':
-        critic = LlamaCritic(pretrained=pretrained, lora_rank=lora_rank, use_action_mask=True)
+        critic = LlamaCritic(pretrained=pretrained, lora_rank=lora_rank, config=config, use_action_mask=True)
     elif model == 'roberta':
-        critic = RoBERTaCritic(pretrained=pretrained, lora_rank=lora_rank, use_action_mask=True)
+        critic = RoBERTaCritic(pretrained=pretrained, lora_rank=lora_rank, config=config, use_action_mask=True)
     else:
         raise ValueError(f'Unsupported reward model "{model}"')
     return critic
 
 
-def get_reward_model_from_args(model: str, pretrained: str = None):
+def get_reward_model_from_args(model: str, pretrained: str = None, config=None):
     if model == 'gpt2':
-        reward_model = GPTRM(pretrained=pretrained)
+        reward_model = GPTRM(pretrained=pretrained, config=config)
     elif model == 'bloom':
-        reward_model = BLOOMRM(pretrained=pretrained)
+        reward_model = BLOOMRM(pretrained=pretrained, config=config)
     elif model == 'opt':
-        reward_model = OPTRM(pretrained=pretrained)
+        reward_model = OPTRM(pretrained=pretrained, config=config)
     elif model == 'llama':
-        reward_model = LlamaRM(pretrained=pretrained)
+        reward_model = LlamaRM(pretrained=pretrained, config=config)
     elif model == 'roberta':
-        reward_model = RoBERTaRM(pretrained=pretrained)
+        reward_model = RoBERTaRM(pretrained=pretrained, config=config)
     else:
         raise ValueError(f'Unsupported reward model "{model}"')
     return reward_model
