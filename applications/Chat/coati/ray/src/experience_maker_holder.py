@@ -86,7 +86,7 @@ class ExperienceMakerHolder:
         self._debug = debug
         self.target_auto_balance = False
 
-        if self._debug:
+        if self._debug and not self._is_fully_initialized:
             print('[maker] Waiting for INIT')
 
     def _get_ready(self):
@@ -162,77 +162,6 @@ class ExperienceMakerHolder:
             self._send_experience(experience=experience)
         self._on_finish()
 
-    # TODO(ver217): remove this function
-    @ray.method(concurrency_group="model_io")
-    def initialize_experience_maker(self,
-                                    actor_model: str = None,
-                                    actor_pretrained: str = None,
-                                    actor_state_dict: Dict[str, Any] = None,
-                                    critic_model: str = None,
-                                    critic_pretrained: str = None,
-                                    critic_state_dict: Dict[str, Any] = None,
-                                    chunk_start: bool = None,
-                                    chunk_end: bool = None):
-        '''
-            called by trainer
-            chunk_start: Set True at the first call. Before sending state_dict calls
-            chunk_end: Set True at the last call. After sending state_dict calls.
-
-            TODO: load_state_dict integrate with model-sharding strategy
-        '''
-        if self._fully_initialized():
-            return
-
-        if chunk_start:
-            if self._debug:
-                print('[maker] INIT')
-            with torch.no_grad():
-                # (csric) any better way to get model structure?
-                with self.strategy.model_init_context():
-                    if not self._actor_initialized and actor_model is not None:
-                        self.experience_maker.actor = get_actor_from_args(actor_model,
-                                                                          actor_pretrained).half().requires_grad_(False)
-                    if not self._critic_initialized and critic_model is not None:
-                        self.experience_maker.critic = get_critic_from_args(
-                            critic_model, critic_pretrained).half().requires_grad_(False)
-                    if not self._initial_model_initialized and actor_model is not None:
-                        self.experience_maker.initial_model = get_actor_from_args(
-                            actor_model, actor_pretrained).half().requires_grad_(False)
-                    if not self._reward_model_initialized and critic_model is not None:
-                        self.experience_maker.reward_model = get_reward_model_from_args(
-                            critic_model, critic_pretrained).half().requires_grad_(False)
-
-        with torch.no_grad():
-            if not self._actor_initialized and actor_state_dict is not None:
-                self.experience_maker.actor.model.load_state_dict(actor_state_dict, strict=False)
-            if not self._critic_initialized and critic_state_dict is not None:
-                self.experience_maker.critic.load_state_dict(critic_state_dict, strict=False)
-            if not self._initial_model_initialized and actor_state_dict is not None:
-                self.experience_maker.initial_model.model.load_state_dict(actor_state_dict, strict=False)
-            if not self._reward_model_initialized and critic_state_dict is not None:
-                self.experience_maker.reward_model.load_state_dict(critic_state_dict, strict=False)
-
-        if chunk_end:
-            with torch.no_grad():
-                if actor_model is not None:
-                    if not self._actor_initialized:
-                        self.experience_maker.actor = self.strategy.prepare(
-                            self.experience_maker.actor.to(torch.cuda.current_device()))
-                    if not self._initial_model_initialized:
-                        self.experience_maker.initial_model = self.strategy.prepare(
-                            self.experience_maker.initial_model.to(torch.cuda.current_device()))
-                    self._actor_initialized = True
-                    self._initial_model_initialized = True
-                if critic_model is not None:
-                    if not self._critic_initialized:
-                        self.experience_maker.critic = self.strategy.prepare(
-                            self.experience_maker.critic.to(torch.cuda.current_device()))
-                    if not self._reward_model_initialized:
-                        self.experience_maker.reward_model = self.strategy.prepare(
-                            self.experience_maker.reward_model.to(torch.cuda.current_device()))
-                    self._critic_initialized = True
-                    self._reward_model_initialized = True
-
     @ray.method(concurrency_group="model_io")
     def update_experience_maker(self,
                                 new_actor_state_dict: Dict[str, Any] = None,
@@ -262,6 +191,7 @@ class ExperienceMakerHolder:
             if new_critic_state_dict is not None:
                 self.experience_maker.critic.load_state_dict(new_critic_state_dict, strict=False)
 
+        # the lock must be released after both actor and critic being updated
         if chunk_end:
             self._model_visit_lock.release()
             if _watch_memory:

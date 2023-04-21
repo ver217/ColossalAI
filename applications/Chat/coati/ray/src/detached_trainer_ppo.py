@@ -115,70 +115,31 @@ class DetachedPPOTrainer(DetachedTrainer):
             self.update_target_holder_list(self.target_holder_name_list)
             # actor:
         if is_rank_0():
-            # mark start
+            # mark start, ensure order
+            tasks = []
             for target_holder in self.target_holder_list:
-                target_holder.update_experience_maker.remote(chunk_start=True, fully_update=fully_update)
+                tasks.append(target_holder.update_experience_maker.remote(chunk_start=True, fully_update=fully_update))
+            ray.get(tasks)
         # sending loop
+        tasks = []
         for state_dict_shard in self._get_model_state_dict_shard(self.strategy._unwrap_model(self.actor), **config):
             if is_rank_0():
                 for target_holder in self.target_holder_list:
-                    target_holder.update_experience_maker.remote(new_actor_state_dict=state_dict_shard,
-                                                                 fully_update=fully_update)
-        if is_rank_0():
-            # mark end
-            for target_holder in self.target_holder_list:
-                target_holder.update_experience_maker.remote(chunk_end=True, fully_update=fully_update)
-        # critic
-        if is_rank_0():
-            # mark start
-            for target_holder in self.target_holder_list:
-                target_holder.update_experience_maker.remote(chunk_start=True, fully_update=fully_update)
-            # sending loop
+                    tasks.append(
+                        target_holder.update_experience_maker.remote(new_actor_state_dict=state_dict_shard,
+                                                                     fully_update=fully_update))
+        # sending loop
         for state_dict_shard in self._get_model_state_dict_shard(self.strategy._unwrap_critic(self.critic), **config):
             if is_rank_0():
                 for target_holder in self.target_holder_list:
-                    target_holder.update_experience_maker.remote(new_critic_state_dict=state_dict_shard,
-                                                                 fully_update=fully_update)
+                    tasks.append(
+                        target_holder.update_experience_maker.remote(new_critic_state_dict=state_dict_shard,
+                                                                     fully_update=fully_update))
+        ray.get(tasks)
         if is_rank_0():
             # mark end
             for target_holder in self.target_holder_list:
                 target_holder.update_experience_maker.remote(chunk_end=True, fully_update=fully_update)
-
-    # TODO(ver217): remove this function
-    @ray.method(concurrency_group="model_io")
-    def initialize_remote_makers(self, **config):
-        # TODO: balance duties
-        if is_rank_0():
-            self.update_target_holder_list(self.target_holder_name_list)
-            with torch.no_grad():
-                # actor / initial_model:
-                # mark start
-                for target_holder in self.target_holder_list:
-                    target_holder.initialize_experience_maker.remote(actor_model=self._model_str,
-                                                                     actor_pretrained=self._pretrained,
-                                                                     chunk_start=True)
-                # sending loop
-                for state_dict_shard in self._get_model_state_dict_shard(self.strategy._unwrap_actor(self.actor),
-                                                                         **config):
-                    for target_holder in self.target_holder_list:
-                        target_holder.initialize_experience_maker.remote(actor_state_dict=state_dict_shard)
-                # mark end
-                for target_holder in self.target_holder_list:
-                    target_holder.initialize_experience_maker.remote(actor_model=self._model_str, chunk_end=True)
-            # critic / reward_model:
-            # mark start
-                for target_holder in self.target_holder_list:
-                    target_holder.initialize_experience_maker.remote(critic_model=self._cr_model_str,
-                                                                     critic_pretrained=self._cr_pretrained,
-                                                                     chunk_start=True)
-                # sending loop
-                for state_dict_shard in self._get_model_state_dict_shard(self.strategy._unwrap_critic(self.critic),
-                                                                         **config):
-                    for target_holder in self.target_holder_list:
-                        target_holder.initialize_experience_maker.remote(critic_state_dict=state_dict_shard)
-                # mark end
-                for target_holder in self.target_holder_list:
-                    target_holder.initialize_experience_maker.remote(critic_model=self._cr_model_str, chunk_end=True)
 
     @ray.method(concurrency_group="compute")
     def training_step(self, experience: Experience) -> Dict[str, float]:

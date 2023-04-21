@@ -59,7 +59,6 @@ class DetachedTrainer(ABC):
     def _update_remote_makers(self, fully_update: bool = False, **kwargs):
         pass
 
-    @ray.method(concurrency_group="model_io")
     def sync_models_to_remote_makers(self, **kwargs):
         self._update_remote_makers(fully_update=True, **kwargs)
 

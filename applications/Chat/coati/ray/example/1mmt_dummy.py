@@ -119,7 +119,9 @@ def main(args):
         env_info=env_info_maker,
         experience_batch_size=args.experience_batch_size,
         kl_coef=0.1,
-    # kwargs:
+        debug=args.debug,
+    # sync_models_from_trainers=True,
+    # generation kwargs:
         max_length=512,
         do_sample=True,
         temperature=1.0,
@@ -128,18 +130,21 @@ def main(args):
         eos_token_id=tokenizer.eos_token_id,
         eval_performance=True,
         use_cache=True,
-        debug=args.debug,
     )
 
     # configure sampler
     random_prompts = torch.randint(tokenizer.vocab_size, (1000, 400))
 
     def tokenize_fn(texts):
-        # print(texts)
         input_ids = torch.stack(texts).cuda()
-        # print(input_ids.shape)
         attn_mask = torch.ones_like(input_ids)
         return {'input_ids': input_ids, 'attention_mask': attn_mask}
+
+    # uncomment this function if sync_models_from_trainers is True
+    # ray.get([
+    #     trainer_ref.sync_models_to_remote_makers.remote()
+    #     for trainer_ref in trainer_refs
+    # ])
 
     wait_tasks = []
 
