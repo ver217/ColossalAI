@@ -95,15 +95,7 @@ def main(args):
             lora_rank=args.lora_rank,
             train_batch_size=args.train_batch_size,
             buffer_limit=16,
-            experience_batch_size=args.experience_batch_size,
             max_epochs=args.max_epochs,
-    # kwargs:
-            max_length=512,
-            do_sample=True,
-            temperature=1.0,
-            top_k=50,
-            pad_token_id=tokenizer.pad_token_id,
-            eos_token_id=tokenizer.eos_token_id,
             eval_performance=True,
             debug=args.debug,
         ) for i, env_info_trainer in enumerate(env_info_trainers)

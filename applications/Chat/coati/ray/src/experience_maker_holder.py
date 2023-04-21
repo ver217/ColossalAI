@@ -36,7 +36,7 @@ class ExperienceMakerHolder:
         strategy:
         experience_batch_size: batch size of generated experience
         kl_coef: the coefficient of kl divergence loss
-        sync_models_from_trainers: whether to sync models from trainers. If True, you must call update_experience_maker() in trainers to sync models.
+        sync_models_from_trainers: whether to sync models from trainers. If True, you must call sync_models_to_remote_makers() in trainers to sync models.
     '''
 
     def __init__(

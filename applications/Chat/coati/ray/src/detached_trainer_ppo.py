@@ -54,28 +54,27 @@ class DetachedPPOTrainer(DetachedTrainer):
     '''
 
     def __init__(
-            self,
-            experience_maker_holder_name_list: List[str],
-            strategy: str,
-            model: str,
-            pretrained: str = None,
-            lora_rank: int = 0,
-            cr_model: str = None,    # if not None, use below cr settings for critic
-            cr_pretrained: str = None,
-            cr_lora_rank: int = 0,
-            env_info: Dict[str, str] = None,
-            train_batch_size: int = 8,
-            buffer_limit: int = 0,
-            buffer_cpu_offload: bool = True,
-            eps_clip: float = 0.2,
-            value_clip: float = 0.4,
-            experience_batch_size: int = 8,
-            max_epochs: int = 10,
-            dataloader_pin_memory: bool = True,
-            callbacks: List[Callback] = [],
-            eval_performance: bool = False,
-            debug: bool = False,
-            **generate_kwargs) -> None:
+        self,
+        experience_maker_holder_name_list: List[str],
+        strategy: str,
+        model: str,
+        pretrained: str = None,
+        lora_rank: int = 0,
+        cr_model: str = None,    # if not None, use below cr settings for critic
+        cr_pretrained: str = None,
+        cr_lora_rank: int = 0,
+        env_info: Dict[str, str] = None,
+        train_batch_size: int = 8,
+        buffer_limit: int = 0,
+        buffer_cpu_offload: bool = True,
+        eps_clip: float = 0.2,
+        value_clip: float = 0.4,
+        max_epochs: int = 10,
+        dataloader_pin_memory: bool = True,
+        callbacks: List[Callback] = [],
+        eval_performance: bool = False,
+        debug: bool = False,
+    ) -> None:
         # set environment variables
         if env_info:
             set_dist_env(env_info=env_info)
@@ -112,7 +111,6 @@ class DetachedPPOTrainer(DetachedTrainer):
             self.strategy.prepare((self.actor, self.actor_optim), (self.critic, self.critic_optim))
 
         # configure trainer
-        generate_kwargs = _set_default_generate_kwargs(self.strategy, generate_kwargs, self.actor)
         self.actor_loss_fn = PolicyLoss(eps_clip)
         self.critic_loss_fn = ValueLoss(value_clip)
 
@@ -120,12 +118,10 @@ class DetachedPPOTrainer(DetachedTrainer):
                          train_batch_size=train_batch_size,
                          buffer_limit=buffer_limit,
                          buffer_cpu_offload=buffer_cpu_offload,
-                         experience_batch_size=experience_batch_size,
                          max_epochs=max_epochs,
                          dataloader_pin_memory=dataloader_pin_memory,
                          callbacks=callbacks,
-                         debug=debug,
-                         **generate_kwargs)
+                         debug=debug)
 
         # for remote maker initialization
         self._model_str = model
@@ -135,7 +131,7 @@ class DetachedPPOTrainer(DetachedTrainer):
 
     @ray.method(concurrency_group="model_io")
     @torch.no_grad()
-    def _update_remote_makers(self, **config):
+    def _update_remote_makers(self, fully_update: bool = False, **config):
         # TODO: balance duties
         if is_rank_0():
             self.update_target_holder_list(self.target_holder_name_list)
@@ -143,31 +139,34 @@ class DetachedPPOTrainer(DetachedTrainer):
         if is_rank_0():
             # mark start
             for target_holder in self.target_holder_list:
-                target_holder.update_experience_maker.remote(chunk_start=True)
+                target_holder.update_experience_maker.remote(chunk_start=True, fully_update=fully_update)
         # sending loop
         for state_dict_shard in self._get_model_state_dict_shard(self.strategy._unwrap_model(self.actor), **config):
             if is_rank_0():
                 for target_holder in self.target_holder_list:
-                    target_holder.update_experience_maker.remote(new_actor_state_dict=state_dict_shard)
+                    target_holder.update_experience_maker.remote(new_actor_state_dict=state_dict_shard,
+                                                                 fully_update=fully_update)
         if is_rank_0():
             # mark end
             for target_holder in self.target_holder_list:
-                target_holder.update_experience_maker.remote(chunk_end=True)
+                target_holder.update_experience_maker.remote(chunk_end=True, fully_update=fully_update)
         # critic
         if is_rank_0():
             # mark start
             for target_holder in self.target_holder_list:
-                target_holder.update_experience_maker.remote(chunk_start=True)
+                target_holder.update_experience_maker.remote(chunk_start=True, fully_update=fully_update)
             # sending loop
         for state_dict_shard in self._get_model_state_dict_shard(self.strategy._unwrap_critic(self.critic), **config):
             if is_rank_0():
                 for target_holder in self.target_holder_list:
-                    target_holder.update_experience_maker.remote(new_critic_state_dict=state_dict_shard)
+                    target_holder.update_experience_maker.remote(new_critic_state_dict=state_dict_shard,
+                                                                 fully_update=fully_update)
         if is_rank_0():
             # mark end
             for target_holder in self.target_holder_list:
-                target_holder.update_experience_maker.remote(chunk_end=True)
+                target_holder.update_experience_maker.remote(chunk_end=True, fully_update=fully_update)
 
+    # TODO(ver217): remove this function
     @ray.method(concurrency_group="model_io")
     def initialize_remote_makers(self, **config):
         # TODO: balance duties
@@ -273,16 +272,3 @@ class DetachedPPOTrainer(DetachedTrainer):
             pass
         for state_dict in self.strategy.get_model_state_dict_shard(model, **config):
             yield state_dict_to(state_dict)
-
-
-def _set_default_generate_kwargs(strategy: Strategy, generate_kwargs: dict, actor: Actor) -> None:
-    origin_model = strategy._unwrap_actor(actor)
-    new_kwargs = {**generate_kwargs}
-    # use huggingface models method directly
-    if 'prepare_inputs_fn' not in generate_kwargs and hasattr(origin_model, 'prepare_inputs_for_generation'):
-        new_kwargs['prepare_inputs_fn'] = origin_model.prepare_inputs_for_generation
-
-    if 'update_model_kwargs_fn' not in generate_kwargs:
-        new_kwargs['update_model_kwargs_fn'] = update_model_kwargs_fn
-
-    return new_kwargs
