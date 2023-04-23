@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional, Union
 
 import ray
+import torch
 from coati.experience_maker import Experience
 from coati.replay_buffer.utils import BufferItem
 from coati.trainer.callbacks import Callback
@@ -33,15 +34,12 @@ class DetachedTrainer(ABC):
                  experience_maker_holder_name_list: List[str],
                  train_batch_size: int = 8,
                  buffer_limit: int = 0,
-                 buffer_cpu_offload: bool = True,
                  max_epochs: int = 1,
                  dataloader_pin_memory: bool = True,
                  callbacks: List[Callback] = [],
                  debug: bool = False) -> None:
         super().__init__()
-        self.detached_replay_buffer = DetachedReplayBuffer(train_batch_size,
-                                                           limit=buffer_limit,
-                                                           cpu_offload=buffer_cpu_offload)
+        self.detached_replay_buffer = DetachedReplayBuffer(train_batch_size, limit=buffer_limit)
         self.max_epochs = max_epochs
         self.dataloader_pin_memory = dataloader_pin_memory
         self.callbacks = callbacks
@@ -73,6 +71,7 @@ class DetachedTrainer(ABC):
             if self._debug:
                 print("[trainer] sampling exp")
             experience = self._buffer_sample()
+            experience.to_device(torch.cuda.current_device())
             if self._debug:
                 print("[trainer] training step")
             self._on_learn_batch_start()

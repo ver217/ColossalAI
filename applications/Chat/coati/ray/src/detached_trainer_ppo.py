@@ -144,7 +144,6 @@ class DetachedPPOTrainer(DetachedTrainer):
         self.actor.train()
         self.critic.train()
 
-        experience.to_device(torch.cuda.current_device())
         num_actions = experience.action_mask.size(1)
         action_log_probs = self.actor(experience.sequences, num_actions, attention_mask=experience.attention_mask)
         actor_loss = self.actor_loss_fn(action_log_probs,

@@ -26,12 +26,7 @@ class DetachedReplayBuffer:
         cpu_offload: Whether to offload experience to cpu when sampling. Defaults to True.
     '''
 
-    def __init__(self,
-                 sample_batch_size: int,
-                 tp_world_size: int = 1,
-                 limit: int = 0,
-                 cpu_offload: bool = True) -> None:
-        self.cpu_offload = cpu_offload
+    def __init__(self, sample_batch_size: int, tp_world_size: int = 1, limit: int = 0) -> None:
         self.sample_batch_size = sample_batch_size
         self.limit = limit
         self.items = Queue(self.limit, actor_options={"num_cpus": 1})
@@ -51,15 +46,8 @@ class DetachedReplayBuffer:
         '''
         Expected to be called remotely.
         '''
-        if self.cpu_offload:
-            experience.to_device(torch.device('cpu'))
         items = split_experience_batch(experience)
-        self.batch_collector.extend(items)
-        while len(self.batch_collector) >= self.sample_batch_size:
-            items = self.batch_collector[:self.sample_batch_size]
-            experience = make_experience_batch(items)
-            self.items.put(experience, block=True)
-            self.batch_collector = self.batch_collector[self.sample_batch_size:]
+        self.extend(items)
 
     @torch.no_grad()
     def extend(self, items: List[BufferItem]) -> None:
