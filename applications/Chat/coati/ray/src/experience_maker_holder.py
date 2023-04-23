@@ -17,8 +17,9 @@ from coati.trainer.strategies import Strategy
 from coati.trainer.strategies.sampler import DistributedSampler
 from ray.exceptions import GetTimeoutError
 from torch import Tensor
+from tqdm import tqdm
 
-from .utils import get_model_numel, set_dist_env
+from .utils import get_model_numel, is_rank_0, set_dist_env
 
 
 @ray.remote(concurrency_groups={"experience_io": 1, "model_io": 1, "compute": 1})
@@ -170,21 +171,22 @@ class ExperienceMakerHolder:
         """
         self._get_ready()
         dataloader = dataloader_fn()
-        running = True
         if num_steps > 0:
             # ignore num epochs
-            step = 0
-            while running:
-                for batch in dataloader:
-                    if step >= num_steps:
-                        running = False
-                        break
-                    step += 1
-                    self._inference_step(batch)
+            it = iter(dataloader)
+            for _ in tqdm(range(num_steps), desc='ExperienceMaker', disable=not is_rank_0()):
+                try:
+                    batch = next(it)
+                except StopIteration:
+                    it = iter(dataloader)
+                    batch = next(it)
+                self._inference_step(batch)
         else:
-            for _ in range(num_epochs):
-                for batch in dataloader:
-                    self._inference_step(batch)
+            with tqdm(total=num_epochs * len(dataloader), desc='ExperienceMaker', disable=not is_rank_0()) as pbar:
+                for _ in range(num_epochs):
+                    for batch in dataloader:
+                        self._inference_step(batch)
+                        pbar.update()
         self._on_finish()
 
     @ray.method(concurrency_group="model_io")

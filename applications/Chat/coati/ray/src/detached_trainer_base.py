@@ -99,7 +99,7 @@ class DetachedTrainer(ABC):
 
     def fit(self, total_steps: int, update_steps: int, train_epochs: int = 1) -> None:
         self._on_fit_start()
-        for _ in tqdm(range(total_steps // update_steps), desc='Train total steps', disable=not is_rank_0()):
+        for _ in tqdm(range(total_steps // update_steps), desc='Trainer', disable=not is_rank_0()):
             self._learn(update_steps, train_epochs)
             self._update_remote_makers()
         self._on_fit_end()

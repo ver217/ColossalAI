@@ -14,37 +14,7 @@ from coati.ray.src.utils import (
     get_strategy_from_args,
 )
 from torch.utils.data import DataLoader
-from transformers import AutoConfig, AutoTokenizer, BloomTokenizerFast
-from transformers.models.gpt2.configuration_gpt2 import GPT2Config
-from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
-
-
-def get_gpt_config(model_name: str) -> GPT2Config:
-    model_map = {
-        's': GPT2Config(),
-        'm': GPT2Config(n_embd=1024, n_layer=24, n_head=16),
-        'l': GPT2Config(n_embd=1280, n_layer=36, n_head=20),
-        'xl': GPT2Config(n_embd=1600, n_layer=48, n_head=25),
-        '2b': GPT2Config(n_embd=2048, n_layer=40, n_head=16),
-        '4b': GPT2Config(n_embd=2304, n_layer=64, n_head=16),
-        '6b': GPT2Config(n_embd=4096, n_layer=30, n_head=16),
-        '8b': GPT2Config(n_embd=4096, n_layer=40, n_head=16),
-        '10b': GPT2Config(n_embd=4096, n_layer=50, n_head=16),
-        '12b': GPT2Config(n_embd=4096, n_layer=60, n_head=16),
-        '15b': GPT2Config(n_embd=4096, n_layer=78, n_head=16),
-        '18b': GPT2Config(n_embd=4096, n_layer=90, n_head=16),
-        '20b': GPT2Config(n_embd=8192, n_layer=25, n_head=16),
-        '24b': GPT2Config(n_embd=8192, n_layer=30, n_head=16),
-        '28b': GPT2Config(n_embd=8192, n_layer=35, n_head=16),
-        '32b': GPT2Config(n_embd=8192, n_layer=40, n_head=16),
-        '36b': GPT2Config(n_embd=8192, n_layer=45, n_head=16),
-        '40b': GPT2Config(n_embd=8192, n_layer=50, n_head=16),
-        '175b': GPT2Config(n_positions=2048, n_embd=12288, n_layer=96, n_head=96),
-    }
-    try:
-        return model_map[model_name]
-    except KeyError:
-        raise ValueError(f'Unknown model "{model_name}"')
+from transformers import AutoConfig, AutoTokenizer
 
 
 def get_free_port():
@@ -82,27 +52,8 @@ def main(args):
     }
 
     # configure tokenizer
-    tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+    tokenizer = AutoTokenizer.from_pretrained(args.pretrain)
     tokenizer.pad_token = tokenizer.eos_token
-
-    def trainer_model_fn():
-        actor = get_actor_from_args(args.model, config=AutoConfig.from_pretrained(args.pretrain)).half().cuda()
-        critic = get_critic_from_args(args.model, config=AutoConfig.from_pretrained(args.critic_pretrain)).half().cuda()
-        return actor, critic
-
-    # configure Trainer
-    trainer_refs = [
-        DetachedPPOTrainer.options(name=f"trainer{i}", num_gpus=1, max_concurrency=2).remote(
-            experience_maker_holder_name_list=["maker1"],
-            strategy_fn=partial(get_strategy_from_args, args.trainer_strategy),
-            model_fn=trainer_model_fn,
-            env_info=env_info_trainer,
-            train_batch_size=args.train_batch_size,
-            buffer_limit=16,
-            eval_performance=True,
-            debug=args.debug,
-        ) for i, env_info_trainer in enumerate(env_info_trainers)
-    ]
 
     def model_fn():
         actor_cfg = AutoConfig.from_pretrained(args.pretrain)
@@ -132,6 +83,25 @@ def main(args):
         eval_performance=True,
         use_cache=True,
     )
+
+    def trainer_model_fn():
+        actor = get_actor_from_args(args.model, config=AutoConfig.from_pretrained(args.pretrain)).half().cuda()
+        critic = get_critic_from_args(args.model, config=AutoConfig.from_pretrained(args.critic_pretrain)).half().cuda()
+        return actor, critic
+
+    # configure Trainer
+    trainer_refs = [
+        DetachedPPOTrainer.options(name=f"trainer{i}", num_gpus=1, max_concurrency=2).remote(
+            experience_maker_holder_name_list=["maker1"],
+            strategy_fn=partial(get_strategy_from_args, args.trainer_strategy),
+            model_fn=trainer_model_fn,
+            env_info=env_info_trainer,
+            train_batch_size=args.train_batch_size,
+            buffer_limit=16,
+            eval_performance=True,
+            debug=args.debug,
+        ) for i, env_info_trainer in enumerate(env_info_trainers)
+    ]
 
     dataset_size = args.experience_batch_size * 4
 
