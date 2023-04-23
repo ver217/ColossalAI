@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 import ray
 from coati.experience_maker import Experience
+from coati.replay_buffer.utils import BufferItem
 from coati.trainer.callbacks import Callback
 from tqdm import tqdm
 
@@ -107,6 +108,13 @@ class DetachedTrainer(ABC):
         if self._debug:
             print(f"[trainer]               receiving exp.")
         self.detached_replay_buffer.append(experience)
+
+    @ray.method(concurrency_group="buffer_append")
+    def buffer_extend(self, items: List[BufferItem]):
+        # called by ExperienceMakerHolder
+        if self._debug:
+            print(f"[trainer]               receiving exp.")
+        self.detached_replay_buffer.extend(items)
 
     @ray.method(concurrency_group="buffer_sample")
     def _buffer_sample(self):

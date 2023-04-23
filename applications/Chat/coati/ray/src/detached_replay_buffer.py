@@ -61,6 +61,18 @@ class DetachedReplayBuffer:
             self.items.put(experience, block=True)
             self.batch_collector = self.batch_collector[self.sample_batch_size:]
 
+    @torch.no_grad()
+    def extend(self, items: List[BufferItem]) -> None:
+        '''
+        Expected to be called remotely.
+        '''
+        self.batch_collector.extend(items)
+        while len(self.batch_collector) >= self.sample_batch_size:
+            items = self.batch_collector[:self.sample_batch_size]
+            experience = make_experience_batch(items)
+            self.items.put(experience, block=True)
+            self.batch_collector = self.batch_collector[self.sample_batch_size:]
+
     def clear(self) -> None:
         # self.items.close()
         self.items.shutdown()

@@ -50,6 +50,7 @@ class ExperienceMakerHolder:
             sync_models_from_trainers: bool = False,
             experience_batch_size: int = 8,
             send_grain_size: int = 4,
+            buffer_cpu_offload: bool = True,
             kl_coef: float = 0.1,
             callbacks: List[Callback] = [],
             eval_performance: bool = False,
@@ -63,6 +64,7 @@ class ExperienceMakerHolder:
             self.target_trainer_list.append(ray.get_actor(name, namespace=os.environ["RAY_NAMESPACE"]))
         self.strategy = strategy_fn()
         self.experience_batch_size = experience_batch_size
+        self.buffer_cpu_offload = buffer_cpu_offload
         self.kl_coef = kl_coef
         # init models
         with self.strategy.model_init_context():
@@ -89,6 +91,8 @@ class ExperienceMakerHolder:
         self._debug = debug
         self.target_auto_balance = False
 
+        self._target_idx = 0
+
         if self._debug and not self._is_fully_initialized:
             print('[maker] Waiting for INIT')
 
@@ -114,6 +118,7 @@ class ExperienceMakerHolder:
         else:
             raise ValueError(f'Unsupported input type "{type(inputs)}"')
 
+    # TODO(ver217): remove this method
     @ray.method(concurrency_group="experience_io")
     def _send_experience(self, experience):
         if not self.target_auto_balance:
@@ -148,6 +153,17 @@ class ExperienceMakerHolder:
                 print(f"[maker] sending exp to {chosen_trainer}")
             chosen_trainer.buffer_append.remote(experience)
 
+    @ray.method(concurrency_group="experience_io")
+    def _send_items(self, experience: Experience) -> None:
+        items = split_experience_batch(experience)
+        items_per_trainer = [[] for _ in range(len(self.target_trainer_list))]
+        for item in items:
+            items_per_trainer[self._target_idx].append(item)
+            self._target_idx = (self._target_idx + 1) % len(self.target_trainer_list)
+        for i, target_trainer in enumerate(self.target_trainer_list):
+            if len(items_per_trainer[i]) > 0:
+                target_trainer.buffer_extend.remote(items_per_trainer[i])
+
     def workingloop(self, dataset, tokenizer: Optional[Callable[[Any], dict]] = None, times=5000 * 50000):
         self._get_ready()
         sampler = self.strategy.setup_sampler(dataset)
@@ -162,19 +178,9 @@ class ExperienceMakerHolder:
             experience = self._make_experience(inputs=inputs)
             self._on_make_experience_end(experience)
             self._model_visit_lock.release()
-            # split experience for smoother handover
-            items = split_experience_batch(experience)
-            temp_buffer = []
-            for item in items:
-                temp_buffer.append(item)
-                if len(temp_buffer) >= self.send_grain_size:
-                    experience_fragment = make_experience_batch(temp_buffer)
-                    self._send_experience(experience=experience_fragment)
-                    temp_buffer = []
-            # remain
-            if len(temp_buffer) > 0:
-                experience_fragment = make_experience_batch(temp_buffer)
-                self._send_experience(experience=experience_fragment)
+            if self.buffer_cpu_offload:
+                experience.to_device('cpu')
+            self._send_items(experience)
         self._on_finish()
 
     @ray.method(concurrency_group="model_io")

@@ -13,7 +13,7 @@ from coati.ray.src.utils import (
     get_reward_model_from_args,
     get_strategy_from_args,
 )
-from transformers import AutoTokenizer, BloomTokenizerFast
+from transformers import AutoConfig, AutoTokenizer, BloomTokenizerFast
 from transformers.models.gpt2.configuration_gpt2 import GPT2Config
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 
@@ -85,8 +85,8 @@ def main(args):
     tokenizer.pad_token = tokenizer.eos_token
 
     def trainer_model_fn():
-        actor = get_actor_from_args(args.model, args.pretrain).half().cuda()
-        critic = get_critic_from_args(args.model, args.pretrain).half().cuda()
+        actor = get_actor_from_args(args.model, config=AutoConfig.from_pretrained(args.pretrain)).half().cuda()
+        critic = get_critic_from_args(args.model, config=AutoConfig.from_pretrained(args.critic_pretrain)).half().cuda()
         return actor, critic
 
     # configure Trainer
@@ -105,10 +105,12 @@ def main(args):
     ]
 
     def model_fn():
-        actor = get_actor_from_args(args.model, args.pretrain).half().cuda()
-        critic = get_critic_from_args(args.model, args.pretrain).half().cuda()
-        reward_model = get_reward_model_from_args(args.model, args.pretrain).half().cuda()
-        initial_model = get_actor_from_args(args.model, args.pretrain).half().cuda()
+        actor_cfg = AutoConfig.from_pretrained(args.pretrain)
+        critic_cfg = AutoConfig.from_pretrained(args.critic_pretrain)
+        actor = get_actor_from_args(args.model, config=actor_cfg).half().cuda()
+        critic = get_critic_from_args(args.model, config=critic_cfg).half().cuda()
+        reward_model = get_reward_model_from_args(args.model, config=critic_cfg).half().cuda()
+        initial_model = get_actor_from_args(args.model, config=actor_cfg).half().cuda()
         return actor, critic, reward_model, initial_model
 
     # configure Experience Maker
@@ -155,7 +157,7 @@ def main(args):
                                    update_timesteps=args.update_timesteps))
 
     num_exp_per_maker = args.num_episodes * args.max_timesteps // args.update_timesteps * \
-        args.max_epochs * args.num_trainers + 3  # +3 for fault tolerance
+        args.max_epochs * args.num_trainers * args.train_batch_size // args.experience_batch_size  # +3 for fault tolerance
     wait_tasks.append(experience_holder_ref.workingloop.remote(random_prompts, tokenize_fn, times=num_exp_per_maker))
 
     ray.get(wait_tasks)
@@ -170,6 +172,7 @@ if __name__ == '__main__':
     parser.add_argument('--maker_strategy', choices=['naive'], default='naive')
     parser.add_argument('--model', default='gpt2', choices=['gpt2', 'bloom', 'opt'])
     parser.add_argument('--pretrain', type=str, default=None)
+    parser.add_argument('--critic_pretrain', type=str, default=None)
     parser.add_argument('--num_episodes', type=int, default=10)
     parser.add_argument('--max_timesteps', type=int, default=10)
     parser.add_argument('--update_timesteps', type=int, default=10)
