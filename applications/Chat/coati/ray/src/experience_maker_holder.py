@@ -3,7 +3,7 @@ import time
 import tracemalloc
 from copy import deepcopy
 from threading import Lock
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 import ray
 import torch
@@ -18,15 +18,7 @@ from coati.trainer.strategies.sampler import DistributedSampler
 from ray.exceptions import GetTimeoutError
 from torch import Tensor
 
-from .utils import (
-    get_actor_from_args,
-    get_critic_from_args,
-    get_model_numel,
-    get_reward_model_from_args,
-    get_strategy_from_args,
-    is_rank_0,
-    set_dist_env,
-)
+from .utils import get_model_numel, set_dist_env
 
 
 @ray.remote(concurrency_groups={"experience_io": 1, "model_io": 1, "compute": 1})
@@ -35,7 +27,6 @@ class ExperienceMakerHolder:
     Args:
         detached_trainer_name_list: str list to get ray actor handles
         strategy:
-        experience_batch_size: batch size of generated experience
         kl_coef: the coefficient of kl divergence loss
         sync_models_from_trainers: whether to sync models from trainers. If True, you must call sync_models_to_remote_makers() in trainers to sync models.
     '''
@@ -48,8 +39,6 @@ class ExperienceMakerHolder:
             model_fn: Callable[[], Tuple[Actor, Critic, RewardModel, Actor]],
             env_info: Dict[str, str] = None,
             sync_models_from_trainers: bool = False,
-            experience_batch_size: int = 8,
-            send_grain_size: int = 4,
             buffer_cpu_offload: bool = True,
             kl_coef: float = 0.1,
             callbacks: List[Callback] = [],
@@ -63,7 +52,6 @@ class ExperienceMakerHolder:
         for name in detached_trainer_name_list:
             self.target_trainer_list.append(ray.get_actor(name, namespace=os.environ["RAY_NAMESPACE"]))
         self.strategy = strategy_fn()
-        self.experience_batch_size = experience_batch_size
         self.buffer_cpu_offload = buffer_cpu_offload
         self.kl_coef = kl_coef
         # init models
@@ -82,7 +70,6 @@ class ExperienceMakerHolder:
         actor, critic, reward_model, initial_model = self.strategy.prepare(actor, critic, reward_model, initial_model)
         self.experience_maker = NaiveExperienceMaker(actor, critic, reward_model, initial_model, self.kl_coef)
         self.callbacks = callbacks
-        self.send_grain_size = send_grain_size
 
         self._model_visit_lock = Lock()
 
@@ -164,23 +151,22 @@ class ExperienceMakerHolder:
             if len(items_per_trainer[i]) > 0:
                 target_trainer.buffer_extend.remote(items_per_trainer[i])
 
-    def workingloop(self, dataset, tokenizer: Optional[Callable[[Any], dict]] = None, times=5000 * 50000):
+    def workingloop(self, dataloader_fn: Callable[[], Iterable], num_epochs: int, max_steps: int = 0):
         self._get_ready()
-        sampler = self.strategy.setup_sampler(dataset)
-        for _ in range(times):
-            rand_prompts = sampler.sample(self.experience_batch_size)
-            if tokenizer is not None:
-                inputs = tokenizer(rand_prompts)
-            else:
-                inputs = rand_prompts
-            self._model_visit_lock.acquire()
-            self._on_make_experience_start()
-            experience = self._make_experience(inputs=inputs)
-            self._on_make_experience_end(experience)
-            self._model_visit_lock.release()
-            if self.buffer_cpu_offload:
-                experience.to_device('cpu')
-            self._send_items(experience)
+        step = 0
+        dataloader = dataloader_fn()
+        for _ in range(num_epochs):
+            for batch in dataloader:
+                if max_steps > 0 and step >= max_steps:
+                    break
+                step += 1
+                with self._model_visit_lock:
+                    self._on_make_experience_start()
+                    experience = self._make_experience(batch)
+                    self._on_make_experience_end(experience)
+                if self.buffer_cpu_offload:
+                    experience.to_device('cpu')
+                self._send_items(experience)
         self._on_finish()
 
     @ray.method(concurrency_group="model_io")
