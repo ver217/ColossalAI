@@ -10,9 +10,9 @@ def load_quant(model: nn.Module, checkpoint: str, wbits: int, groupsize: int):
     layers = find_layers(model)
 
     # ignore lm head
-    for name in layers:
-        # model wrapper compatibility
-        if name.endswith('lm_head'):
+    layers = find_layers(model)
+    for name in ['lm_head']:
+        if name in layers:
             del layers[name]
 
     make_quant(model, layers, wbits, groupsize)
