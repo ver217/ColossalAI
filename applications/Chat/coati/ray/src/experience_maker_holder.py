@@ -151,22 +151,40 @@ class ExperienceMakerHolder:
             if len(items_per_trainer[i]) > 0:
                 target_trainer.buffer_extend.remote(items_per_trainer[i])
 
-    def workingloop(self, dataloader_fn: Callable[[], Iterable], num_epochs: int, max_steps: int = 0):
+    def _inference_step(self, batch) -> None:
+        with self._model_visit_lock:
+            self._on_make_experience_start()
+            experience = self._make_experience(batch)
+            self._on_make_experience_end(experience)
+        if self.buffer_cpu_offload:
+            experience.to_device('cpu')
+        self._send_items(experience)
+
+    def workingloop(self, dataloader_fn: Callable[[], Iterable], num_epochs: int = 1, num_steps: int = 0):
+        """Working loop of the experience maker.
+
+        Args:
+            dataloader_fn (Callable[[], Iterable]): A function that returns a dataloader.
+            num_epochs (int, optional): Iterate the dataloader for number of epochs. Defaults to 1.
+            num_steps (int, optional): Iterate the dataloader for number if steps. If this value > 0, num_epochs will be ignored. Defaults to 0.
+        """
         self._get_ready()
-        step = 0
         dataloader = dataloader_fn()
-        for _ in range(num_epochs):
-            for batch in dataloader:
-                if max_steps > 0 and step >= max_steps:
-                    break
-                step += 1
-                with self._model_visit_lock:
-                    self._on_make_experience_start()
-                    experience = self._make_experience(batch)
-                    self._on_make_experience_end(experience)
-                if self.buffer_cpu_offload:
-                    experience.to_device('cpu')
-                self._send_items(experience)
+        running = True
+        if num_steps > 0:
+            # ignore num epochs
+            step = 0
+            while running:
+                for batch in dataloader:
+                    if step >= num_steps:
+                        running = False
+                        break
+                    step += 1
+                    self._inference_step(batch)
+        else:
+            for _ in range(num_epochs):
+                for batch in dataloader:
+                    self._inference_step(batch)
         self._on_finish()
 
     @ray.method(concurrency_group="model_io")

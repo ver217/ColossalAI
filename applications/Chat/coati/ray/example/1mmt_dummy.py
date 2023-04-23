@@ -133,7 +133,7 @@ def main(args):
         use_cache=True,
     )
 
-    dataset_size = 512
+    dataset_size = args.experience_batch_size * 4
 
     def data_gen_fn():
         input_ids = torch.randint(tokenizer.vocab_size, (256,), device=torch.cuda.current_device())
@@ -154,9 +154,10 @@ def main(args):
     wait_tasks = []
 
     wait_tasks.append(
-        experience_holder_ref.workingloop.remote(partial(build_dataloader, dataset_size), args.experience_epochs))
+        experience_holder_ref.workingloop.remote(partial(build_dataloader, dataset_size),
+                                                 num_steps=args.experience_steps))
 
-    total_steps = dataset_size * args.experience_epochs // (args.num_trainers * args.train_batch_size)
+    total_steps = args.experience_batch_size * args.experience_steps // (args.num_trainers * args.train_batch_size)
     for trainer_ref in trainer_refs:
         wait_tasks.append(trainer_ref.fit.remote(total_steps, args.update_steps, args.train_epochs))
 
@@ -173,7 +174,7 @@ if __name__ == '__main__':
     parser.add_argument('--model', default='gpt2', choices=['gpt2', 'bloom', 'opt'])
     parser.add_argument('--pretrain', type=str, default=None)
     parser.add_argument('--critic_pretrain', type=str, default=None)
-    parser.add_argument('--experience_epochs', type=int, default=1)
+    parser.add_argument('--experience_steps', type=int, default=4)
     parser.add_argument('--experience_batch_size', type=int, default=8)
     parser.add_argument('--train_epochs', type=int, default=1)
     parser.add_argument('--update_steps', type=int, default=2)
