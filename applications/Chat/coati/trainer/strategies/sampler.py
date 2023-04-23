@@ -27,6 +27,16 @@ class DistributedSampler:
         assert len(indices) == self.num_samples
         self.indices = indices
 
+
     def sample(self, batch_size: int) -> list:
         sampled_indices = np.random.choice(self.indices, batch_size, replace=False)
         return [self.dataset[idx] for idx in sampled_indices]
+
+    def __iter__(self):
+        return self
+    
+    def __next__(self):
+        return self.sample(self.iter_batch_size)
+    
+    def set_iter_batch_size(self, batch_size : int = 1):
+        self.iter_batch_size = batch_size

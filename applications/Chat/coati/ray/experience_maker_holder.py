@@ -161,7 +161,11 @@ class ExperienceMakerHolder:
             experience.to_device('cpu')
         self._send_items(experience)
 
-    def workingloop(self, dataloader_fn: Callable[[], Iterable], num_epochs: int = 1, num_steps: int = 0):
+    def workingloop(self, 
+                    dataloader_fn: Callable[[], Iterable], 
+                    tokenize_fn: Callable = lambda x: x,
+                    num_epochs: int = 1, 
+                    num_steps: int = 0):
         """Working loop of the experience maker.
 
         Args:
@@ -180,12 +184,12 @@ class ExperienceMakerHolder:
                 except StopIteration:
                     it = iter(dataloader)
                     batch = next(it)
-                self._inference_step(batch)
+                self._inference_step(tokenize_fn(batch))
         else:
             with tqdm(total=num_epochs * len(dataloader), desc='ExperienceMaker', disable=not is_rank_0()) as pbar:
                 for _ in range(num_epochs):
                     for batch in dataloader:
-                        self._inference_step(batch)
+                        self._inference_step(tokenize_fn(batch))
                         pbar.update()
         self._on_finish()
 
