@@ -118,20 +118,23 @@ def main(args):
 
     
     dataset_size = args.experience_batch_size * 4
+    from torch.utils.data import DataLoader
 
     def build_dataloader():
+        def tokenize_fn(texts):
+            batch = tokenizer(texts, return_tensors='pt', max_length=96, padding='max_length', truncation=True)
+            return {k: v.cuda() for k, v in batch.items()}
+
         dataset = pd.read_csv(args.prompt_path)['prompt']
-        # csric: Strategy.setup_sampler, Strategy.setup_dataloader aren't utilized
-        sampler = get_strategy_from_args(args.maker_strategy).setup_sampler(dataset)
-        sampler.set_iter_batch_size(dataset_size)
-        return sampler
-        
-    def tokenize_fn(texts):
-        batch = tokenizer(texts, return_tensors='pt', max_length=96, padding='max_length', truncation=True)
-        return {k: v.cuda() for k, v in batch.items()}
+        dataloader = DataLoader(dataset=dataset,
+                   batch_size=dataset_size,
+                   shuffle=True,
+                   collate_fn=tokenize_fn
+                   )
+        return dataloader
+
 
     wait_tasks.append(experience_holder_ref.workingloop.remote(build_dataloader, 
-                                                               tokenize_fn, 
                                                                num_steps=args.experience_steps))
 
     ray.get(wait_tasks)
