@@ -108,7 +108,7 @@ class DetachedPPOTrainer(DetachedTrainer):
     def _update_remote_makers(self, fully_update: bool = False, **config):
         # TODO: balance duties
         if is_rank_0():
-            self.update_target_holder_list(self.target_holder_name_list)
+            self.update_target_holder_list()
             # mark start, ensure order
             tasks = []
             for target_holder in self.target_holder_list:

@@ -46,9 +46,9 @@ class DetachedTrainer(ABC):
 
         self._debug = debug
 
-    def update_target_holder_list(self, experience_maker_holder_name_list):
-        self.target_holder_name_list = experience_maker_holder_name_list
-        self.target_holder_list = []
+    def update_target_holder_list(self):
+        if len(self.target_holder_list) > 0:
+            return
         for name in self.target_holder_name_list:
             self.target_holder_list.append(ray.get_actor(name, namespace=os.environ["RAY_NAMESPACE"]))
 
