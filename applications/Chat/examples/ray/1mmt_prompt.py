@@ -74,10 +74,10 @@ def main(args):
     ]
     
     def model_fn():
-        actor = get_actor_from_args(args.model, args.pretrain).half().cuda()
-        critic = get_critic_from_args(args.model, args.critic_pretrain).half().cuda()
-        reward_model = get_reward_model_from_args(args.model, args.critic_pretrain).half().cuda()
-        initial_model = get_actor_from_args(args.model, args.pretrain).half().cuda()
+        actor = get_actor_from_args(args.model, args.pretrain).requires_grad_(False).half().cuda()
+        critic = get_critic_from_args(args.model, args.critic_pretrain).requires_grad_(False).half().cuda()
+        reward_model = get_reward_model_from_args(args.model, args.critic_pretrain).requires_grad_(False).half().cuda()
+        initial_model = get_actor_from_args(args.model, args.pretrain).requires_grad_(False).half().cuda()
         return actor, critic, reward_model, initial_model
     
     # configure Experience Maker
