@@ -19,7 +19,7 @@ from ray.exceptions import GetTimeoutError
 from torch import Tensor
 from tqdm import tqdm
 
-from .utils import get_model_numel, is_rank_0, set_dist_env
+from .utils import get_model_numel, get_rank, get_trainers_per_maker, get_world_size, is_rank_0, set_dist_env
 
 
 @ray.remote(concurrency_groups={"experience_io": 1, "model_io": 1, "compute": 1})
@@ -94,7 +94,8 @@ class ExperienceMakerHolder:
     def _init_target_trainer_list(self):
         if len(self.target_trainer_list) > 0:
             return
-        for name in self._detached_trainer_name_list:
+        name_list = get_trainers_per_maker(self._detached_trainer_name_list, get_rank(), get_world_size())
+        for name in name_list:
             self.target_trainer_list.append(ray.get_actor(name, namespace=os.environ["RAY_NAMESPACE"]))
 
     # copy from ../trainer/base.py

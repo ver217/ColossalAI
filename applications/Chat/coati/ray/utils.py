@@ -18,6 +18,14 @@ def is_rank_0() -> bool:
     return not dist.is_initialized() or dist.get_rank() == 0
 
 
+def get_rank() -> int:
+    return dist.get_rank() if dist.is_initialized() else 0
+
+
+def get_world_size() -> int:
+    return dist.get_world_size() if dist.is_initialized() else 1
+
+
 def get_actor_from_args(model: str, pretrained: str = None, config=None, lora_rank=0):
     if model == 'gpt2':
         actor = GPTActor(pretrained=pretrained, config=config, lora_rank=lora_rank)
@@ -126,3 +134,11 @@ def state_dict_to(state_dict: Dict[str, Any],
 def get_model_numel(model: nn.Module) -> int:
     numel = sum(p.numel() for p in model.parameters())
     return numel
+
+
+def get_trainers_per_maker(trainers: list, maker_idx: int, num_makers: int) -> list:
+    target_trainers = []
+    for i, trainer in enumerate(trainers):
+        if i % num_makers == maker_idx:
+            target_trainers.append(trainer)
+    return target_trainers
