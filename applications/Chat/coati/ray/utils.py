@@ -76,9 +76,9 @@ def get_strategy_from_args(strategy: str):
     elif strategy == 'colossalai_zero2':
         strategy_ = ColossalAIStrategy(stage=2, placement_policy='cuda')
     elif strategy == 'colossalai_gemini_cpu':
-        strategy = ColossalAIStrategy(stage=3, placement_policy='cpu', initial_scale=2**5)
+        strategy_ = ColossalAIStrategy(stage=3, placement_policy='cpu', initial_scale=2**5)
     elif strategy == 'colossalai_zero2_cpu':
-        strategy = ColossalAIStrategy(stage=2, placement_policy='cpu')
+        strategy_ = ColossalAIStrategy(stage=2, placement_policy='cpu')
     else:
         raise ValueError(f'Unsupported strategy "{strategy}"')
     return strategy_
