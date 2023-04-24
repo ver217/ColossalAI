@@ -11,6 +11,7 @@ from coati.ray.experience_maker_holder import ExperienceMakerHolder
 from coati.ray.utils import (
     get_actor_from_args,
     get_critic_from_args,
+    get_receivers_per_sender,
     get_reward_model_from_args,
     get_strategy_from_args,
 )
@@ -74,7 +75,7 @@ def main(args):
         return actor, critic, reward_model, initial_model
 
     # configure Experience Maker
-    experience_holder_ref = ExperienceMakerHolder.options(name="maker1", num_gpus=1, max_concurrency=2).remote(
+    experience_holder_ref = ExperienceMakerHolder.options(name="maker0", num_gpus=1, max_concurrency=2).remote(
         detached_trainer_name_list=[f'trainer{i}' for i in range(args.num_trainers)],
         strategy_fn=partial(get_strategy_from_args, args.maker_strategy),
         model_fn=model_fn,
@@ -102,7 +103,9 @@ def main(args):
     # configure Trainer
     trainer_refs = [
         DetachedPPOTrainer.options(name=f"trainer{i}", num_gpus=1, max_concurrency=2).remote(
-            experience_maker_holder_name_list=["maker1"],
+            experience_maker_holder_name_list=[
+                f'maker{x}' for x in get_receivers_per_sender(i, args.num_trainers, 1, allow_idle_sender=True)
+            ],
             strategy_fn=partial(get_strategy_from_args, args.trainer_strategy),
             model_fn=trainer_model_fn,
             env_info=env_info_trainer,

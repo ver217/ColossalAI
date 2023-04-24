@@ -136,9 +136,16 @@ def get_model_numel(model: nn.Module) -> int:
     return numel
 
 
-def get_trainers_per_maker(trainers: list, maker_idx: int, num_makers: int) -> list:
-    target_trainers = []
-    for i, trainer in enumerate(trainers):
-        if i % num_makers == maker_idx:
-            target_trainers.append(trainer)
-    return target_trainers
+def get_receivers_per_sender(sender_idx: int, num_senders: int, num_receivers: int, allow_idle_sender: bool) -> list:
+    target_receivers = []
+    if num_senders <= num_receivers or allow_idle_sender:
+        # a sender will send data to one or more than one receivers
+        # a receiver only has one sender
+        for i in range(num_receivers):
+            if i % num_senders == sender_idx:
+                target_receivers.append(i)
+    else:
+        # a sender will send data to one receiver
+        # a receiver may have more than one sender
+        target_receivers.append(sender_idx % num_receivers)
+    return target_receivers

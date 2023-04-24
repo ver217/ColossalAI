@@ -19,7 +19,7 @@ from ray.exceptions import GetTimeoutError
 from torch import Tensor
 from tqdm import tqdm
 
-from .utils import get_model_numel, get_rank, get_trainers_per_maker, get_world_size, is_rank_0, set_dist_env
+from .utils import get_model_numel, get_rank, get_world_size, is_rank_0, set_dist_env
 
 
 @ray.remote(concurrency_groups={"experience_io": 1, "model_io": 1, "compute": 1})
@@ -81,8 +81,10 @@ class ExperienceMakerHolder:
 
         self._target_idx = 0
 
-        if self._debug and not self._is_fully_initialized:
-            print('[maker] Waiting for INIT')
+        if self._debug:
+            print(f'[maker{get_rank()}] will send items to {self._detached_trainer_name_list}')
+            if not self._is_fully_initialized:
+                print(f'[maker{get_rank()}] Waiting for INIT')
 
     def _get_ready(self):
         while not self._fully_initialized():
@@ -94,8 +96,7 @@ class ExperienceMakerHolder:
     def _init_target_trainer_list(self):
         if len(self.target_trainer_list) > 0:
             return
-        name_list = get_trainers_per_maker(self._detached_trainer_name_list, get_rank(), get_world_size())
-        for name in name_list:
+        for name in self._detached_trainer_name_list:
             self.target_trainer_list.append(ray.get_actor(name, namespace=os.environ["RAY_NAMESPACE"]))
 
     # copy from ../trainer/base.py

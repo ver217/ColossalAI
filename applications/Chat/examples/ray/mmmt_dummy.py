@@ -11,6 +11,7 @@ from coati.ray.experience_maker_holder import ExperienceMakerHolder
 from coati.ray.utils import (
     get_actor_from_args,
     get_critic_from_args,
+    get_receivers_per_sender,
     get_reward_model_from_args,
     get_strategy_from_args,
 )
@@ -76,7 +77,10 @@ def main(args):
     # configure Experience Maker
     experience_holder_refs = [
         ExperienceMakerHolder.options(name=f"maker{i}", num_gpus=1, max_concurrency=2).remote(
-            detached_trainer_name_list=[f'trainer{x}' for x in range(args.num_trainers)],
+            detached_trainer_name_list=[
+                f'trainer{x}'
+                for x in get_receivers_per_sender(i, args.num_makers, args.num_trainers, allow_idle_sender=False)
+            ],
             strategy_fn=partial(get_strategy_from_args, args.maker_strategy),
             model_fn=model_fn,
             env_info=env_info_maker,
@@ -92,7 +96,8 @@ def main(args):
             eos_token_id=tokenizer.eos_token_id,
             eval_performance=True,
             use_cache=True,
-        ) for i, env_info_maker in enumerate(env_info_makers)
+        )
+        for i, env_info_maker in enumerate(env_info_makers)
     ]
 
     def trainer_model_fn():
@@ -104,7 +109,10 @@ def main(args):
     # configure Trainer
     trainer_refs = [
         DetachedPPOTrainer.options(name=f"trainer{i}", num_gpus=1, max_concurrency=2).remote(
-            experience_maker_holder_name_list=[f"maker{x}" for x in range(args.num_makers)],
+            experience_maker_holder_name_list=[
+                f"maker{x}"
+                for x in get_receivers_per_sender(i, args.num_trainers, args.num_makers, allow_idle_sender=True)
+            ],
             strategy_fn=partial(get_strategy_from_args, args.trainer_strategy),
             model_fn=trainer_model_fn,
             env_info=env_info_trainer,
@@ -112,7 +120,8 @@ def main(args):
             buffer_limit=16,
             eval_performance=True,
             debug=args.debug,
-        ) for i, env_info_trainer in enumerate(env_info_trainers)
+        )
+        for i, env_info_trainer in enumerate(env_info_trainers)
     ]
 
     dataset_size = args.experience_batch_size * 4
