@@ -27,7 +27,7 @@ class NaiveStrategy(Strategy):
         optimizer.step()
 
     def setup_distributed(self) -> None:
-        pass
+        self._try_init_dist(force=False)
 
     def setup_model(self, model: nn.Module) -> nn.Module:
         return model
