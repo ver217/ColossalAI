@@ -126,3 +126,14 @@ def state_dict_to(state_dict: Dict[str, Any],
 def get_model_numel(model: nn.Module) -> int:
     numel = sum(p.numel() for p in model.parameters())
     return numel
+
+def state_dict_filter_grad(state_dict: Dict[str, Any], model: nn.Module):
+    '''
+    state_dict loses grad info. Original model needed.
+    '''
+    for name, parameter in model.named_parameters():
+        if not parameter.requires_grad:
+            pass
+            
+def get_grad_required_state_dict(model: nn.Module):
+    pass

@@ -1,5 +1,5 @@
 from typing import Any, Optional
-
+from collections import OrderedDict
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -75,7 +75,13 @@ class NaiveStrategy(Strategy):
 
     def get_model_state_dict_shard(self, model: nn.Module, **config):
         # TODO: implement sharding on naive strategy
-        state_dict = model.state_dict()
+        if 'requires_grad_only' in config and config['requires_grad_only'] == True:
+            state_dict = OrderedDict()
+            for name, parameter in model.named_parameters():
+                if parameter.requires_grad:
+                    state_dict[name] = parameter.detach()
+        else:
+            state_dict = model.state_dict()
         yield state_dict
         
     def merge_lora_weight(self, model: nn.Module):
