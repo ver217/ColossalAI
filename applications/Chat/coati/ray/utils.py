@@ -1,5 +1,6 @@
 import os
 from typing import Any, Callable, Dict, List, Optional
+from collections import OrderedDict
 
 import torch
 import torch.distributed as dist
@@ -149,14 +150,3 @@ def get_receivers_per_sender(sender_idx: int, num_senders: int, num_receivers: i
         # a receiver may have more than one sender
         target_receivers.append(sender_idx % num_receivers)
     return target_receivers
-
-def state_dict_filter_grad(state_dict: Dict[str, Any], model: nn.Module):
-    '''
-    state_dict loses grad info. Original model needed.
-    '''
-    for name, parameter in model.named_parameters():
-        if not parameter.requires_grad:
-            pass
-            
-def get_grad_required_state_dict(model: nn.Module):
-    pass

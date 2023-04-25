@@ -110,17 +110,14 @@ class DetachedPPOTrainer(DetachedTrainer):
     @torch.no_grad()
     def _update_remote_makers(self, fully_update: bool = False, **config):
         # TODO: balance duties
-        self.actor.eval()
-        self.critic.eval()
         if not fully_update:
             config['requires_grad_only'] = True
-        if is_rank_0():
-            self.update_target_holder_list(self.target_holder_name_list)
-            # mark start, ensure order
-            tasks = []
-            for target_holder in self.target_holder_list:
-                tasks.append(target_holder.update_experience_maker.remote(chunk_start=True, fully_update=fully_update))
-            ray.get(tasks)
+        self.update_target_holder_list()
+        # mark start, ensure order
+        tasks = []
+        for target_holder in self.target_holder_list:
+            tasks.append(target_holder.update_experience_maker.remote(chunk_start=True, fully_update=fully_update))
+        ray.get(tasks)
         # sending loop
         tasks = []
         for state_dict_shard in self._get_model_state_dict_shard(self.strategy._unwrap_model(self.actor), **config):

@@ -184,12 +184,8 @@ class ExperienceMakerHolder:
         with torch.no_grad():
             if new_actor_state_dict is not None:
                 self.experience_maker.actor.model.load_state_dict(new_actor_state_dict, strict=False)
-                print("actor", new_actor_state_dict.keys())
-                # print("local actor", self.experience_maker.actor.model.state_dict().keys())
             if new_critic_state_dict is not None:
                 self.experience_maker.critic.load_state_dict(new_critic_state_dict, strict=False)
-                print("critic", new_critic_state_dict.keys())
-                # print("local critic", self.experience_maker.critic.state_dict().keys())
 
 
         # the lock must be released after both actor and critic being updated
@@ -201,8 +197,6 @@ class ExperienceMakerHolder:
                 tracemalloc.stop()
             if fully_update:
                 self._is_fully_initialized = True
-            print(self.experience_maker.actor.model.lm_head.weight)
-            print(self.experience_maker.critic.value_head.weight)
 
     def _on_make_experience_start(self) -> None:
         for callback in self.callbacks:
