@@ -121,18 +121,13 @@ class DetachedPPOTrainer(DetachedTrainer):
         # sending loop
         tasks = []
 
-        # patch fix here. TODO: refactor _unwrap_xxx.
-        if isinstance(self.strategy, DDPStrategy):
-            unwrapped_actor = self.strategy._unwrap_actor(self.actor)
-        else:
-            unwrapped_actor = self.strategy._unwrap_model(self.actor)
-        for state_dict_shard in self._get_model_state_dict_shard(unwrapped_actor, **config):
+        for state_dict_shard in self._get_model_state_dict_shard(self.actor, **config):
             for target_holder in self.target_holder_list:
                 tasks.append(
                     target_holder.update_experience_maker.remote(new_actor_state_dict=state_dict_shard,
                                                                  fully_update=fully_update))
         # sending loop
-        for state_dict_shard in self._get_model_state_dict_shard(self.strategy._unwrap_critic(self.critic), **config):
+        for state_dict_shard in self._get_model_state_dict_shard(self.critic, **config):
             for target_holder in self.target_holder_list:
                 tasks.append(
                     target_holder.update_experience_maker.remote(new_critic_state_dict=state_dict_shard,
@@ -181,28 +176,6 @@ class DetachedPPOTrainer(DetachedTrainer):
 
     def strategy_save_critic_optim(self, path: str, only_rank0: bool = False) -> None:
         self.strategy.save_optimizer(self.critic_optim, path, only_rank0)
-
-    def _get_unwrapped_actor(self):
-        if False:
-            pass
-        elif isinstance(self.strategy, ColossalAIStrategy):
-            ret = Actor(self.strategy._unwrap_model(self.actor))
-            return ret
-        elif isinstance(self.strategy, DDPStrategy):
-            return Actor(self.strategy._unwrap_actor(self.actor))
-        elif isinstance(self.strategy, NaiveStrategy):
-            return self.actor
-
-    def _get_unwrapped_critic(self):
-        if False:
-            pass
-        elif isinstance(self.strategy, ColossalAIStrategy):
-            ret = self.strategy._unwrap_model(self.critic)
-            return ret
-        elif isinstance(self.strategy, DDPStrategy):
-            return self.critic.module
-        elif isinstance(self.strategy, NaiveStrategy):
-            return self.critic
 
     def _get_model_state_dict_shard(self, model: torch.nn.Module, **config):
         # try:

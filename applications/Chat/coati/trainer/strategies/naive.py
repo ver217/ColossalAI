@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.optim as optim
 from coati.models.base import get_base_model
 from coati.replay_buffer import ReplayBuffer
-from coati.models.base import LM, RewardModel
+from coati.models.base import RewardModel
 from coati.models.lora import LoraLinear
 from coati.replay_buffer import ReplayBuffer
 from torch.optim import Optimizer
@@ -85,6 +85,7 @@ class NaiveStrategy(Strategy):
 
     def get_model_state_dict_shard(self, model: nn.Module, **config):
         # TODO: implement sharding on naive strategy
+        model = self.unwrap_model(model)
         if 'requires_grad_only' in config and config['requires_grad_only'] == True:
             state_dict = get_grad_required_state_dict(model)
         else:

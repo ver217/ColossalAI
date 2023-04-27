@@ -196,5 +196,5 @@ class ColossalAIStrategy(DDPStrategy):
             #     if isinstance(module, LoraLinear):
             #         module.merge_weights = True
             #         module.eval()
-            model: ZeroDDP = model
-            yield from model.state_dict_shard(max_shard_size=1024, only_rank_0=False)
+            base_model: ZeroDDP = get_base_model(model)
+            yield from base_model.state_dict_shard(max_shard_size=1024, only_rank_0=False)
