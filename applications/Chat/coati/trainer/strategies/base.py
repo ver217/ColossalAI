@@ -104,7 +104,6 @@ class Strategy(ABC):
         """
         return get_base_model(model)
 
-
     @abstractmethod
     def save_model(self, model: nn.Module, path: str, only_rank0: bool = True) -> None:
         pass

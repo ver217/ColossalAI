@@ -137,7 +137,7 @@ class ColossalAIStrategy(DDPStrategy):
         model = zero_model_wrapper(model, zero_stage=self.stage, gemini_config=self.gemini_config)
 
         if self.stage != 3 and self.precision == 'fp16':
-            model = model.half().cuda().cuda()
+            model = model.half().cuda()
         return model
 
     def setup_optimizer(self, optimizer: optim.Optimizer, model: nn.Module) -> optim.Optimizer:
