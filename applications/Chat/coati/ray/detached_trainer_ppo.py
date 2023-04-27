@@ -120,7 +120,13 @@ class DetachedPPOTrainer(DetachedTrainer):
         ray.get(tasks)
         # sending loop
         tasks = []
-        for state_dict_shard in self._get_model_state_dict_shard(self.strategy._unwrap_model(self.actor), **config):
+
+        # patch fix here. TODO: refactor _unwrap_xxx.
+        if isinstance(self.strategy, DDPStrategy):
+            unwrapped_actor = self.strategy._unwrap_actor(self.actor)
+        else:
+            unwrapped_actor = self.strategy._unwrap_model(self.actor)
+        for state_dict_shard in self._get_model_state_dict_shard(unwrapped_actor, **config):
             for target_holder in self.target_holder_list:
                 tasks.append(
                     target_holder.update_experience_maker.remote(new_actor_state_dict=state_dict_shard,

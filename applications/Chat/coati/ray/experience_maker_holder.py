@@ -189,6 +189,8 @@ class ExperienceMakerHolder:
         with torch.no_grad():
             if new_actor_state_dict is not None:
                 self.experience_maker.actor.model.load_state_dict(new_actor_state_dict, strict=False)
+                print(new_actor_state_dict.keys())
+                print(self.experience_maker.actor.model.state_dict().keys())
             if new_critic_state_dict is not None:
                 self.experience_maker.critic.load_state_dict(new_critic_state_dict, strict=False)
 

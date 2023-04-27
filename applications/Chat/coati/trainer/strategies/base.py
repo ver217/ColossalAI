@@ -139,3 +139,7 @@ class Strategy(ABC):
 
     def setup_sampler(self, dataset) -> DistributedSampler:
         return DistributedSampler(dataset, 1, 0)
+
+    @abstractmethod
+    def get_model_state_dict_shard(self, model: nn.Module, **config):
+        pass
