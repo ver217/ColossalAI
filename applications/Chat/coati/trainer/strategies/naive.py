@@ -1,7 +1,8 @@
 import os
 import sys
-from typing import Any, Optional, Dict
 from collections import OrderedDict
+from typing import Any, Dict, Optional
+
 import torch
 import torch.distributed as dist
 import torch.nn as nn
@@ -17,6 +18,7 @@ from transformers.modeling_utils import PreTrainedModel
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from .base import Strategy
+
 
 # TODO Move this to a util.py   (Moving to ray.util introduces ringed import)
 def get_grad_required_state_dict(model: nn.Module):
@@ -91,7 +93,7 @@ class NaiveStrategy(Strategy):
         else:
             state_dict = model.state_dict()
 
-        if 'shard_size' in config: 
+        if 'shard_size' in config:
             shard_size = config['shard_size']
             accumulate_size = 0
             state_dict_shard = OrderedDict()
@@ -106,13 +108,6 @@ class NaiveStrategy(Strategy):
                 yield state_dict_shard
         else:
             yield state_dict
-
-    def merge_lora_weight(self, model: nn.Module):
-        unwrapped_model = self._unwrap_model(model)
-        for module in unwrapped_model.modules():
-            if isinstance(module, LoraLinear):
-                module.merge_weights = True
-                module.eval()
 
     def _try_init_dist(self, force: bool = False) -> None:
         try:
