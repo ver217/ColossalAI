@@ -175,11 +175,11 @@ if __name__ == '__main__':
     parser.add_argument('--critic_model', default='gpt2', choices=['gpt2', 'bloom', 'opt', 'llama'])
     parser.add_argument('--pretrain', type=str, default=None)
     parser.add_argument('--critic_pretrain', type=str, default=None)
-    parser.add_argument('--experience_steps', type=int, default=4) # 
-    parser.add_argument('--experience_batch_size', type=int, default=8) # _ * _ 
+    parser.add_argument('--experience_steps', type=int, default=4)
+    parser.add_argument('--experience_batch_size', type=int, default=8)
     parser.add_argument('--train_epochs', type=int, default=1)
-    parser.add_argument('--update_steps', type=int, default=2) # 
-    parser.add_argument('--train_batch_size', type=int, default=8) # 
+    parser.add_argument('--update_steps', type=int, default=2)
+    parser.add_argument('--train_batch_size', type=int, default=8)
     parser.add_argument('--lora_rank', type=int, default=0, help="low-rank adaptation matrices rank")
 
     parser.add_argument('--initial_model_quant_ckpt', type=str, default=None)

@@ -189,12 +189,8 @@ class ExperienceMakerHolder:
         with torch.no_grad():
             if new_actor_state_dict is not None:
                 self.experience_maker.actor.model.load_state_dict(new_actor_state_dict, strict=False)
-                # print("new actor", new_actor_state_dict.keys())
-                # print("local actor", self.experience_maker.actor.model.state_dict().keys())
             if new_critic_state_dict is not None:
                 self.experience_maker.critic.load_state_dict(new_critic_state_dict, strict=False)
-                # print("new critic", new_critic_state_dict.keys())
-                # print("local critic", self.experience_maker.critic.state_dict().keys())
 
 
         # the lock must be released after both actor and critic being updated
