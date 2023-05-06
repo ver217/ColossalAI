@@ -5,7 +5,7 @@
     We can completely separate the trainers and makers.  
 
 <p align="center">
-<img src="./assets/basic_structure_1.png" width=600/>
+<img src="./assets/basic_structure.png" width=600/>
 </p>
 
 - The experience maker performs inference, produces experience, and remotely delivers it to the trainer (1).
