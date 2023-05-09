@@ -44,7 +44,7 @@ class LoRAConstructor:
     def register_lora_config(self, lora_config_dict: Dict[str, Any]):
         self.lora_config_dict = lora_config_dict
 
-    def reconstruct_increase(self, state_dict_lora: Dict[str, Any], lora_config_dict: Dict[str, Any] = None):
+    def reconstruct_increase(self, state_dict_lora: Dict[str, Any], lora_config_dict: Dict[str, Any]):
         '''
             xxx.lora_A, xxx.lora_B -->> xxx.weight
             Warning: the xxx.weight here is the increment actually.
@@ -53,39 +53,22 @@ class LoRAConstructor:
             self.register_lora_config(lora_config_dict)
 
         state_dict_increasae = OrderedDict()
-        if self.lora_config_dict is None:
-            # default configuration
-            lora_A, lora_B, layer_prefix = None, None, None
-            for k, v in state_dict_lora.items():
-                if k.rpartition('.')[-1] == 'lora_A':
-                    lora_A = v
-                    layer_prefix = k.rpartition('.')[0]
-                elif k.rpartition('.')[-1] == 'lora_B':
-                    assert layer_prefix == k.rpartition('.')[0], "unmatched (lora_A, lora_B) pair"
-                    lora_B = v
-                    weight_data_increase = self._compute(lora_A, lora_B)
-                    state_dict_increasae[layer_prefix + '.weight'] = weight_data_increase
-                    lora_A, lora_B, layer_prefix = None, None, None
-                else:
-                    raise ValueError('unexpected key')
-        else:
-            # per layer configuration
-            config_iter = iter(self.lora_config_dict.items())
-            lora_A, lora_B, layer_prefix = None, None, None
-            for k, v in state_dict_lora.items():
-                if k.rpartition('.')[-1] == 'lora_A':
-                    lora_A = v
-                    layer_prefix = k.rpartition('.')[0]
-                elif k.rpartition('.')[-1] == 'lora_B':
-                    assert layer_prefix == k.rpartition('.')[0], "unmatched (lora_A, lora_B) pair"
-                    layer_prefix_2, config = next(config_iter)
-                    assert layer_prefix_2 == layer_prefix, "unmatched (state_dict, config_dict) pair"
-                    lora_B = v
-                    weight_data_increase = self._compute(lora_A, lora_B, config)
-                    state_dict_increasae[layer_prefix + '.weight'] = weight_data_increase
-                    lora_A, lora_B, layer_prefix = None, None, None
-                else:
-                    raise ValueError('unexpected key')
+        config_iter = iter(self.lora_config_dict.items())
+        lora_A, lora_B, layer_prefix = None, None, None
+        for k, v in state_dict_lora.items():
+            if k.rpartition('.')[-1] == 'lora_A':
+                lora_A = v
+                layer_prefix = k.rpartition('.')[0]
+            elif k.rpartition('.')[-1] == 'lora_B':
+                assert layer_prefix == k.rpartition('.')[0], "unmatched (lora_A, lora_B) pair"
+                layer_prefix_2, config = next(config_iter)
+                assert layer_prefix_2 == layer_prefix, "unmatched (state_dict, config_dict) pair"
+                lora_B = v
+                weight_data_increase = self._compute(lora_A, lora_B, config)
+                state_dict_increasae[layer_prefix + '.weight'] = weight_data_increase
+                lora_A, lora_B, layer_prefix = None, None, None
+            else:
+                raise ValueError('unexpected key')
         return state_dict_increasae
 
     def _compute(self, lora_A, lora_B, config=LoRAConfig()):
