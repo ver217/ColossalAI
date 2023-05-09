@@ -46,7 +46,8 @@ class LoRAConstructor:
 
     def reconstruct_increase(self, state_dict_lora: Dict[str, Any], lora_config_dict: Dict[str, Any] = None):
         '''
-            xxx.lora_A, xxx.lora_B -->> xxx.weight_increase
+            xxx.lora_A, xxx.lora_B -->> xxx.weight
+            Warning: the xxx.weight here is the increment actually.
         '''
         if lora_config_dict is not None:
             self.register_lora_config(lora_config_dict)
@@ -63,7 +64,7 @@ class LoRAConstructor:
                     assert layer_prefix == k.rpartition('.')[0], "unmatched (lora_A, lora_B) pair"
                     lora_B = v
                     weight_data_increase = self._compute(lora_A, lora_B)
-                    state_dict_increasae[layer_prefix + '.weight_increase'] = weight_data_increase
+                    state_dict_increasae[layer_prefix + '.weight'] = weight_data_increase
                     lora_A, lora_B, layer_prefix = None, None, None
                 else:
                     raise ValueError('unexpected key')
@@ -81,7 +82,7 @@ class LoRAConstructor:
                     assert layer_prefix_2 == layer_prefix, "unmatched (state_dict, config_dict) pair"
                     lora_B = v
                     weight_data_increase = self._compute(lora_A, lora_B, config)
-                    state_dict_increasae[layer_prefix + '.weight_increase'] = weight_data_increase
+                    state_dict_increasae[layer_prefix + '.weight'] = weight_data_increase
                     lora_A, lora_B, layer_prefix = None, None, None
                 else:
                     raise ValueError('unexpected key')
@@ -110,7 +111,7 @@ class LoRAConstructor:
         '''
         state_dict_lora = OrderedDict()
         state_dict_non_lora = OrderedDict()
-        for k, v in state_dict:
+        for k, v in state_dict.items():
             if 'lora_A' in k or 'lora_B' in k:
                 state_dict_lora[k] = v
             elif keep_non_lora:
@@ -128,7 +129,7 @@ class LoRAConstructor:
         '''
         lora_config_dict = OrderedDict()
 
-        for name, child in model.named_modules:
+        for name, child in model.named_modules():
             if isinstance(child, LoraLinear):
                 lora_config_dict[name] = LoRAConfig(r=child.r,
                                                     lora_alpha=child.lora_alpha,
