@@ -8,7 +8,8 @@ from coati.experience_maker import Experience
 from coati.replay_buffer import NaiveReplayBuffer
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
-
+from torch.utils.tensorboard import SummaryWriter
+import torch.distributed as dist
 from .callbacks import Callback
 from .strategies import Strategy
 from .utils import CycledDataLoader, is_rank_0
@@ -30,12 +31,14 @@ class SLTrainer(ABC):
                  max_epochs: int,
                  model: nn.Module,
                  optimizer: Optimizer,
+                 tensorboard_dir: str = None,
                  ) -> None:
         super().__init__()
         self.strategy = strategy
         self.max_epochs = max_epochs
         self.model = model
         self.optimizer = optimizer
+        self.writer = SummaryWriter(tensorboard_dir) if tensorboard_dir and dist.get_rank() == 0 else None
 
     @abstractmethod
     def _train(self, epoch):
@@ -56,6 +59,9 @@ class SLTrainer(ABC):
                                  ):
             self._train(epoch)
             self._eval(epoch)
+        if dist.get_rank() == 0 and self.writer:
+            print("Closing tensorboard writer...")
+            self.writer.close()
 
 
 class OnPolicyTrainer(ABC):

@@ -8,7 +8,6 @@ import wandb
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import _LRScheduler
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
 
 from colossalai.logging import DistributedLogger
 
@@ -36,6 +35,7 @@ class SFTTrainer(SLTrainer):
         strategy: Strategy,
         optim: Optimizer,
         lr_scheduler: _LRScheduler,
+        tensorboard_dir: str = None,
         max_epochs: int = 2,
         accumulation_steps: int = 8,
     ) -> None:
@@ -43,8 +43,7 @@ class SFTTrainer(SLTrainer):
             assert not isinstance(strategy, GeminiStrategy), \
                 "Accumulation steps are not supported in stage 3 of ColossalAI"
 
-        super().__init__(strategy, max_epochs, model, optim)
-
+        super().__init__(strategy, max_epochs, model, optim, tensorboard_dir)
         self.accumulation_steps = accumulation_steps
         self.scheduler = lr_scheduler
 
@@ -68,7 +67,7 @@ class SFTTrainer(SLTrainer):
                 self.strategy.optimizer_step(self.optimizer)
                 self.optimizer.zero_grad()
                 self.scheduler.step()
-                if self.writer:
+                if dist.get_rank() == 0 and self.writer:
                     self.writer.add_scalar('loss', self.total_loss, start_step + batch_id)
                     self.writer.add_scalar('lr', self.scheduler.get_last_lr()[0], start_step + batch_id)
                 if is_rank_0() and self.use_wandb:
@@ -80,6 +79,7 @@ class SFTTrainer(SLTrainer):
                     })
                 self.total_loss = 0
                 self.step_bar.update()
+            print(f"Epoch {epoch}/{self.max_epochs} batch {batch_id}/{len(self.train_dataloader)} loss {loss.item()}")
 
     def _eval(self, epoch: int):
         if self.eval_dataloader is not None:
@@ -99,14 +99,14 @@ class SFTTrainer(SLTrainer):
                 loss_mean = loss_sum / num_seen
                 if dist.get_rank() == 0:
                     self.logger.info(f'Eval Epoch {epoch}/{self.max_epochs} loss {loss_mean}')
-                if self.writer:
+                if dist.get_rank() == 0 and self.writer:
                     self.writer.add_scalar('eval_loss', loss_mean, epoch)
+                print(f'Eval Epoch {epoch}/{self.max_epochs} loss {loss_mean}')
 
     def _before_fit(self,
                     train_dataloader: DataLoader,
                     eval_dataloader: Optional[DataLoader] = None,
                     logger: Optional[DistributedLogger] = None,
-                    tensorboard_dir: Optional[str] = None,
                     use_wandb: bool = False):
         """
         Args:
@@ -127,6 +127,3 @@ class SFTTrainer(SLTrainer):
         self.step_bar = tqdm.trange(len(self.train_dataloader) // self.accumulation_steps * self.max_epochs,
                                     desc=f'steps',
                                     disable=not is_rank_0())
-        self.writer = None
-        if tensorboard_dir and dist.get_rank() == 0:
-            self.writer = SummaryWriter(tensorboard_dir)

@@ -164,12 +164,12 @@ def train(args):
                          optim=optim,
                          lr_scheduler=lr_scheduler,
                          max_epochs=args.max_epochs,
+                         tensorboard_dir=args.tensorboard_dir,
                          accumulation_steps=args.accumulation_steps)
 
     trainer.fit(train_dataloader=train_dataloader,
                 eval_dataloader=eval_dataloader,
                 logger=logger,
-                tensorboard_dir=args.tensorboard_dir,
                 use_wandb=args.use_wandb)
 
     # save model checkpoint after fitting on only rank0
